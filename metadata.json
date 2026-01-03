@@ -1,0 +1,7 @@
+{
+  "name": "VocalEdge AI Coach",
+  "description": "An unfiltered AI communication coach designed to help users master sales pitches, debates, and everyday conversation through real-time feedback and brutal honesty.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
