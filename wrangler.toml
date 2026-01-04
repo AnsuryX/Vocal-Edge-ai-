@@ -1,6 +1,6 @@
-name = "vocal-edge-ai"
-main = "src/worker/index.ts" # Make sure this file EXISTS at this path!
-compatibility_date = "2024-11-01"
+name = "vocal-edge-ai-couchv1"
+main = "workers/proxy/index.js"
+compatibility_date = "2026-01-04"
 
 [assets]
 directory = "./dist" # This is where 'npm run build' puts your React files
