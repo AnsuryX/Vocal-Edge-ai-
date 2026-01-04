@@ -101,14 +101,53 @@ export class CommunicationCoach {
     return new GoogleGenAI({ apiKey: key });
   }
 
+  private getProxyConfig() {
+    const proxy = (import.meta as any).env?.VITE_PROXY_URL;
+    const restBase = (import.meta as any).env?.VITE_GENAI_REST_BASE || '';
+    return { proxy, restBase };
+  }
+
+  private async callProxy(targetPath: string, body: any) {
+    const { proxy, restBase } = this.getProxyConfig();
+    if (!proxy) throw new Error('No proxy configured (VITE_PROXY_URL)');
+    const target = restBase ? `${restBase.replace(/\/$/, '')}${targetPath}` : targetPath;
+    const resp = await fetch(`${proxy.replace(/\/$/, '')}/api/proxy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      throw new Error(`Proxy request failed: ${resp.status} ${txt}`);
+    }
+    return resp.json();
+  }
+
   async generateSuggestedTopics(lang: Language): Promise<string[]> {
-    const ai = this.getAIInstance();
     const prompt = `Generate 4-5 engaging, relevant conversation topics for a practice session aimed at building conversational confidence. 
     Topics should be specific (e.g., 'A childhood memory that shaped you' instead of 'Childhood').
     Progress from light to deep.
     Return them as a JSON array of strings. Language: ${lang === 'en' ? 'English' : 'Arabic'}`;
 
+    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
+    if (proxyUrl) {
+      try {
+        // Use the worker proxy to call the GenAI REST endpoint. The worker will inject the server-side key.
+        const model = 'gemini-3-flash-preview';
+        const body = { model, contents: prompt, config: { responseMimeType: 'application/json' } };
+        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
+        // Try to extract text responses conservatively
+        if (result?.text) return JSON.parse(result.text);
+        if (result?.candidates?.[0]?.content?.text) return JSON.parse(result.candidates[0].content.text);
+        return JSON.parse(JSON.stringify(result));
+      } catch (e) {
+        console.error('Proxy generateSuggestedTopics failed', e);
+      }
+    }
+
+    // Fallback: use client-side GenAI SDK (requires VITE_GEMINI_API_KEY)
     try {
+      const ai = this.getAIInstance();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -334,6 +373,7 @@ export class CommunicationCoach {
   }
 
   async getDetailedAnalysis(history: string, config: SessionConfig, lang: Language) {
+    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
     const ai = this.getAIInstance();
     const isWarm = config.persona.isWarm;
     const toneInstruction = isWarm 
@@ -362,6 +402,20 @@ export class CommunicationCoach {
 
     History:
     ${history}`;
+
+    if (proxyUrl) {
+      try {
+        const model = 'gemini-3-flash-preview';
+        const body = { model, contents: prompt, config: { responseMimeType: 'application/json' } };
+        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
+        // attempt to parse structured result
+        if (result?.text) return JSON.parse(result.text);
+        if (result?.candidates?.[0]?.content?.text) return JSON.parse(result.candidates[0].content.text);
+        return result;
+      } catch (e) {
+        console.error('Proxy getDetailedAnalysis failed', e);
+      }
+    }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -405,7 +459,20 @@ export class CommunicationCoach {
       ar_msa: 'Puck',
       ar_khaleeji: 'Zephyr'
     };
-    
+    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
+    if (proxyUrl) {
+      try {
+        const model = 'gemini-2.5-flash-preview-tts';
+        const body = { model, contents: [{ parts: [{ text: `Say this clearly: ${text}` }] }], config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceMap[lang] || 'Kore' } } } } };
+        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
+        const base64Audio = result?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || result?.data;
+        if (!base64Audio) throw new Error('Failed to generate speech via proxy');
+        return base64Audio;
+      } catch (e) {
+        console.error('Proxy generateSpeech failed', e);
+      }
+    }
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `Say this clearly: ${text}` }] }],
@@ -418,7 +485,7 @@ export class CommunicationCoach {
         },
       },
     });
-    
+
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) throw new Error("Failed to generate speech");
     return base64Audio;
@@ -430,15 +497,28 @@ export class CommunicationCoach {
     Evaluate the pronunciation accuracy, tone, and clarity.
     Return JSON: { score: number, feedback: string, needsCorrection: boolean }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: [
-        { text: prompt },
-        { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } }
-      ],
-      config: { responseMimeType: 'application/json' }
-    });
+      const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
+      if (proxyUrl) {
+        try {
+          const model = 'gemini-3-flash-preview';
+          const body = { model, contents: [ { text: prompt }, { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } } ], config: { responseMimeType: 'application/json' } };
+          const result = await this.callProxy(`/v1/models/${model}:generate`, body);
+          if (result?.text) return JSON.parse(result.text);
+          return result;
+        } catch (e) {
+          console.error('Proxy analyzePronunciationAttempt failed', e);
+        }
+      }
 
-    return JSON.parse(response.text);
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [
+          { text: prompt },
+          { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } }
+        ],
+        config: { responseMimeType: 'application/json' }
+      });
+
+      return JSON.parse(response.text);
   }
 }

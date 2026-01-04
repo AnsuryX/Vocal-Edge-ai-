@@ -42,7 +42,11 @@ Set the environment variable `VITE_GEMINI_API_KEY` in the Vercel dashboard if yo
 
 Cloudflare Pages
 - Create a Pages project, set the build command to `npm run build` and the build output directory to `dist`.
- - Add `VITE_GEMINI_API_KEY` to Pages environment variables only for non-production/testing.
+ - Create a Pages project, set the build command to `npm run build` and the build output directory to `dist`.
+ - Add the following environment variables in Pages (recommended):
+    - `VITE_PROXY_URL` = your Worker URL (e.g., `https://vocaledge-ai-proxy.YOUR_ACCOUNT.workers.dev`) — the client will call this worker for server-side GenAI requests.
+    - `VITE_GENAI_REST_BASE` = optional GenAI REST base (e.g., `https://genai.googleapis.com`). If left empty, the client will post absolute target URLs to the proxy.
+    - (Do NOT set `VITE_GEMINI_API_KEY` for production.)
 
 Security (very important)
 - `services/geminiService.ts` currently reads the API key from `import.meta.env.VITE_GEMINI_API_KEY`. Vite will embed that key into the client bundle — anyone can inspect it. DO NOT put real production API keys into client-visible env vars.
