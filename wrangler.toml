@@ -3,5 +3,5 @@ main = "workers/proxy/index.js"
 compatibility_date = "2026-01-04"
 
 [assets]
-bucket = "./dist" # Where Vite builds your React files
-binding = "ASSETS"   # This creates `env.ASSETS` in the worker runtime
+directory = "./dist" # This is where 'npm run build' puts your React files
+binding = "ASSETS"
