@@ -131,7 +131,7 @@ export const SCENARIOS: Scenario[] = [
 export const TRANSLATIONS = {
   welcome: { en: 'Welcome back', ar_msa: 'مرحباً بعودتك', ar_khaleeji: 'هلا بك من جديد' },
   practiceNow: { en: 'Practice Now', ar_msa: 'تدرب الآن', ar_khaleeji: 'تدرب الحين' },
-  history: { en: 'Your Progress', ar_msa: 'تقدمك', ar_khaleeji: 'إنجازاتك' },
+  history: { en: 'Performance Timeline', ar_msa: 'تاريخ الأداء', ar_khaleeji: 'سجل إنجازاتك' },
   startSession: { en: 'Start Session', ar_msa: 'بدء الجلسة', ar_khaleeji: 'ابدأ الجلسة' },
   endSession: { en: 'Finish', ar_msa: 'إنهاء', ar_khaleeji: 'خلصنا' },
   analyzing: { en: 'Analyzing Performance...', ar_msa: 'تحليل الأداء...', ar_khaleeji: 'قاعدين نحلل...' },
@@ -152,5 +152,18 @@ export const TRANSLATIONS = {
   reviewRecording: { en: 'Review Recording', ar_msa: 'مراجعة التسجيل', ar_khaleeji: 'اسمع الجلسة' },
   recordingTurns: { en: 'Conversation Timeline', ar_msa: 'الجدول الزمني للحوار', ar_khaleeji: 'تسلسل السوالف' },
   suggestedTopics: { en: 'Suggested Topics', ar_msa: 'مواضيع مقترحة', ar_khaleeji: 'مواضيع للسوالف' },
-  generatingTopics: { en: 'Seeking inspiration...', ar_msa: 'البحث عن إلهام...', ar_khaleeji: 'قاعدين ندور مواضيع...' }
+  generatingTopics: { en: 'Seeking inspiration...', ar_msa: 'البحث عن إلهام...', ar_khaleeji: 'قاعدين ندور مواضيع...' },
+  profile: { en: 'User Account', ar_msa: 'حساب المستخدم', ar_khaleeji: 'بياناتي الشخصية' },
+  stats: { en: 'Skill Metrics', ar_msa: 'مقاييس المهارة', ar_khaleeji: 'إحصائياتي' },
+  statsSessions: { en: 'Total Sessions', ar_msa: 'إجمالي الجلسات', ar_khaleeji: 'كم مرة تدربت' },
+  statsAvg: { en: 'Avg. Score', ar_msa: 'متوسط الدرجة', ar_khaleeji: 'معدلك' },
+  statsBestSkill: { en: 'Dominant Skill', ar_msa: 'المهارة السائدة', ar_khaleeji: 'أقوى مهارة' },
+  settingsResetKey: { en: 'Switch Billing Project', ar_msa: 'تغيير مشروع الفوترة', ar_khaleeji: 'تغيير مفتاح التشغيل' },
+  settingsClearData: { en: 'Wipe History', ar_msa: 'مسح السجل بالكامل', ar_khaleeji: 'امسح كل شي' },
+  noHistory: { en: 'No sessions recorded yet.', ar_msa: 'لم يتم تسجيل أي جلسات بعد.', ar_khaleeji: 'للحين ما سويت ولا جلسة.' },
+  saveProfile: { en: 'Save Details', ar_msa: 'حفظ البيانات', ar_khaleeji: 'حفظ' },
+  userName: { en: 'Display Name', ar_msa: 'الاسم المعروض', ar_khaleeji: 'اسمك' },
+  userBio: { en: 'Professional Bio / Role', ar_msa: 'نبذة شخصية', ar_khaleeji: 'عن نفسك' },
+  userGoal: { en: 'Primary Goal', ar_msa: 'الهدف الأساسي', ar_khaleeji: 'هدفك الحين' },
+  toneVibe: { en: 'Coach Tone Vibe', ar_msa: 'نبرة المدرب المفضلة', ar_khaleeji: 'جو المدرب اللي تحبه' }
 };

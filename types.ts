@@ -14,7 +14,7 @@ export interface Persona {
   role: Record<Language, string>;
   personality: Record<Language, string>;
   icon: string;
-  isWarm?: boolean; // New trait for supportive personas
+  isWarm?: boolean; 
 }
 
 export interface Scenario {
@@ -58,6 +58,14 @@ export interface SessionResult {
   personaName: string;
   troubleWords?: PronunciationItem[];
   recordingTurns?: RecordingTurn[];
+}
+
+export interface UserProfile {
+  name: string;
+  bio: string;
+  goal: string;
+  preferredTone: 'brutal' | 'supportive';
+  joinedDate: string;
 }
 
 export interface UserStats {

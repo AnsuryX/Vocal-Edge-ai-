@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Language, ScenarioType, SessionResult, Scenario, Persona, SessionConfig, RecordingTurn } from './types';
+import { Language, ScenarioType, SessionResult, Scenario, Persona, SessionConfig, RecordingTurn, UserProfile } from './types';
 import { SCENARIOS, TRANSLATIONS, FOCUS_SKILLS } from './constants';
 import { CommunicationCoach } from './services/geminiService';
 import LanguageSwitcher from './components/LanguageSwitcher';
@@ -11,7 +11,7 @@ import LiveMetrics from './components/LiveMetrics';
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('en');
   const [isRTL, setIsRTL] = useState(false);
-  const [activeScreen, setActiveScreen] = useState<'home' | 'customize' | 'practice' | 'results' | 'auth'>('auth');
+  const [activeScreen, setActiveScreen] = useState<'home' | 'customize' | 'practice' | 'results' | 'stats' | 'profile' | 'auth'>('auth');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [showPronunciationWorkshop, setShowPronunciationWorkshop] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -24,21 +24,30 @@ const App: React.FC = () => {
   const [suggestedTopics, setSuggestedTopics] = useState<string[]>([]);
   const [isLoadingTopics, setIsLoadingTopics] = useState(false);
 
+  // User Profile
+  const [profile, setProfile] = useState<UserProfile>({
+    name: '',
+    bio: '',
+    goal: '',
+    preferredTone: 'supportive',
+    joinedDate: new Date().toLocaleDateString()
+  });
+
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [history, setHistory] = useState<SessionResult[]>([]);
   const [lastTranscription, setLastTranscription] = useState('');
+  const [playingTurnId, setPlayingTurnId] = useState<string | null>(null);
   
-  // Real-time metrics
+  // Real-time
   const [liveEnergy, setLiveEnergy] = useState(0);
   const [livePace, setLivePace] = useState(0);
   
-  const [currentPlaybackId, setCurrentPlaybackId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
   const coachRef = useRef<CommunicationCoach>(new CommunicationCoach());
   const metricsIntervalRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
     setIsRTL(lang.startsWith('ar'));
@@ -46,547 +55,403 @@ const App: React.FC = () => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'ar';
   }, [lang]);
 
-  // Auth/Key Check
+  // Persistent storage load
   useEffect(() => {
-    const checkKey = async () => {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (hasKey) {
-        setActiveScreen('home');
-      }
-    };
-    checkKey();
+    const h = localStorage.getItem('ve_history');
+    if (h) setHistory(JSON.parse(h));
+    const p = localStorage.getItem('ve_profile');
+    if (p) setProfile(JSON.parse(p));
   }, []);
 
-  const handleSelectKey = async () => {
-    await (window as any).aistudio.openSelectKey();
-    setActiveScreen('home');
-  };
+  // Persistent storage save
+  useEffect(() => localStorage.setItem('ve_history', JSON.stringify(history)), [history]);
+  useEffect(() => localStorage.setItem('ve_profile', JSON.stringify(profile)), [profile]);
 
-  // Generate topics when Confidence scenario is picked
   useEffect(() => {
-    if (activeScreen === 'customize' && selectedScenario?.type === ScenarioType.CONFIDENCE) {
-      const fetchTopics = async () => {
-        setIsLoadingTopics(true);
-        try {
-          const topics = await coachRef.current.generateSuggestedTopics(lang);
-          setSuggestedTopics(topics);
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setIsLoadingTopics(false);
-        }
-      };
-      fetchTopics();
-    } else {
-      setSuggestedTopics([]);
-    }
-  }, [activeScreen, selectedScenario, lang]);
+    const check = async () => {
+      const ok = await (window as any).aistudio.hasSelectedApiKey();
+      if (ok) setActiveScreen('home');
+    };
+    check();
+  }, []);
 
-  // Handle real-time metrics polling
-  useEffect(() => {
-    if (isSessionActive) {
-      metricsIntervalRef.current = window.setInterval(() => {
-        const metrics = coachRef.current.getRealtimeMetrics();
-        setLiveEnergy(metrics.energy);
-        setLivePace(metrics.pace);
-      }, 100);
+  const t = (key: keyof typeof TRANSLATIONS) => TRANSLATIONS[key][lang];
 
-      const paceResetInterval = window.setInterval(() => {
-        coachRef.current.resetPaceCounter();
-      }, 3000);
-
-      return () => {
-        if (metricsIntervalRef.current) window.clearInterval(metricsIntervalRef.current);
-        window.clearInterval(paceResetInterval);
-      };
-    } else {
-      setLiveEnergy(0);
-      setLivePace(0);
-    }
-  }, [isSessionActive]);
-
-  const handleScenarioClick = (scenario: Scenario) => {
-    setSelectedScenario(scenario);
-    setSelectedPersona(scenario.personas[0]);
-    setTopic('');
-    setOutcome('');
-    setSelectedSkills([]);
-    setActiveScreen('customize');
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleError = (e: any) => {
-    console.error("Session Error caught in App:", e);
-    const msg = e?.message || "A network error occurred.";
-    if (msg.includes("Requested entity was not found")) {
-      setErrorMsg("API Key configuration error. Please re-select your key.");
-      setActiveScreen('auth');
-    } else if (msg.includes("CANCELLED") || msg.includes("cancelled")) {
-      setErrorMsg("Connection was reset by server. Retrying might help.");
-      setIsSessionActive(false);
-    } else {
-      setErrorMsg(msg);
-      setIsSessionActive(false);
-    }
-  };
-
-  const startSession = async () => {
+  const handleStartSession = async () => {
     if (!selectedScenario || !selectedPersona) return;
     setErrorMsg(null);
-
     const config: SessionConfig = {
       scenario: selectedScenario,
       persona: selectedPersona,
       topic: topic || selectedScenario.description[lang],
-      outcome: outcome || (selectedPersona.isWarm ? "Build openness and connection" : "Master the goal"),
-      focusSkills: selectedSkills.length > 0 ? selectedSkills : (selectedPersona.isWarm ? ['vulnerability', 'clarity'] : ['clarity'])
+      outcome: outcome || "Growth",
+      focusSkills: selectedSkills.length > 0 ? selectedSkills : ['clarity']
     };
 
     try {
       setActiveScreen('practice');
       setIsSessionActive(true);
-      setLastTranscription('');
+      startTimeRef.current = Date.now();
       await coachRef.current.startSession(config, lang, {
         onTranscriptionUpdate: (text) => setLastTranscription(text),
         onClose: () => setIsSessionActive(false),
-        onerror: handleError
+        onerror: (e) => { setErrorMsg(e.message); setIsSessionActive(false); }
       });
     } catch (err: any) {
-      handleError(err);
+      setErrorMsg(err.message);
       setActiveScreen('customize');
     }
   };
 
-  const endSession = async () => {
+  const handleEndSession = async () => {
+    const sessionEndTime = Date.now();
+    const duration = startTimeRef.current ? Math.floor((sessionEndTime - startTimeRef.current) / 1000) : 0;
+    
     setIsSessionActive(false);
     setIsAnalyzing(true);
-    const { history: conversationText, recordedTurns } = coachRef.current.stopSession();
+    const { history: text, recordedTurns } = coachRef.current.stopSession();
     try {
-      if (conversationText.trim().length === 0) {
-        setActiveScreen('home');
-        return;
-      }
-      const config: SessionConfig = {
-        scenario: selectedScenario!,
-        persona: selectedPersona!,
-        topic: topic || selectedScenario!.description[lang],
-        outcome: outcome || "Goal achievement",
-        focusSkills: selectedSkills.length > 0 ? selectedSkills : ['clarity']
-      };
-      const result = await coachRef.current.getDetailedAnalysis(conversationText, config, lang);
-      setAnalysisResult(result);
-      const newResult: SessionResult = {
+      if (!text.trim()) { setActiveScreen('home'); return; }
+      const res = await coachRef.current.getDetailedAnalysis(text, { scenario: selectedScenario!, persona: selectedPersona!, topic, outcome, focusSkills: selectedSkills }, lang);
+      
+      // Crucial: Pass recordedTurns to analysisResult for display on the Results screen
+      setAnalysisResult({ ...res, duration, recordingTurns: recordedTurns }); 
+      
+      const newEntry: SessionResult = {
         id: Date.now().toString(),
         date: new Date().toLocaleDateString(),
         scenarioType: selectedScenario!.type,
-        confidenceScore: result.confidenceScore,
-        effectivenessScore: result.effectivenessScore,
-        feedback: result.feedback,
-        duration: 0,
+        confidenceScore: res.confidenceScore,
+        effectivenessScore: res.effectivenessScore,
+        feedback: res.feedback,
+        duration: duration,
         personaName: selectedPersona!.name[lang],
-        troubleWords: result.troubleWords,
         recordingTurns: recordedTurns
       };
-      setHistory(prev => [newResult, ...prev]);
+      setHistory(prev => [newEntry, ...prev]);
       setActiveScreen('results');
-    } catch (err: any) {
-      handleError(err);
+    } catch (e) {
       setActiveScreen('home');
     } finally {
       setIsAnalyzing(false);
+      startTimeRef.current = null;
     }
   };
 
-  const playTurnAudio = (turn: RecordingTurn) => {
-    if (currentPlaybackId === turn.id) {
-       audioRef.current?.pause();
-       setCurrentPlaybackId(null);
-       return;
-    }
-
-    if (turn.audioUrl) {
-      if (!audioRef.current) audioRef.current = new Audio();
+  const playTurn = (turn: RecordingTurn) => {
+    if (!turn.audioUrl) return;
+    if (audioRef.current) {
       audioRef.current.src = turn.audioUrl;
       audioRef.current.play();
-      setCurrentPlaybackId(turn.id);
-      audioRef.current.onended = () => setCurrentPlaybackId(null);
+      setPlayingTurnId(turn.id);
+      audioRef.current.onended = () => setPlayingTurnId(null);
     }
   };
 
-  const t = (key: keyof typeof TRANSLATIONS) => TRANSLATIONS[key][lang];
-
-  // Logic for persona-based visual styles
-  const getPersonaColors = (p: Persona | null) => {
-    if (!p) return { border: 'border-blue-500', text: 'text-blue-500', bg: 'bg-blue-600', ring: 'border-blue-500', visualizer: 'bg-blue-500' };
-    if (p.isWarm) return { border: 'border-orange-500', text: 'text-orange-400', bg: 'bg-orange-600', ring: 'border-orange-500', visualizer: 'bg-orange-400' };
-    if (p.id === 'd4') return { border: 'border-cyan-400', text: 'text-cyan-400', bg: 'bg-cyan-600', ring: 'border-cyan-400', visualizer: 'bg-cyan-400' };
-    if (p.id === 'd5' || p.id === 'd2') return { border: 'border-red-500', text: 'text-red-500', bg: 'bg-red-600', ring: 'border-red-500', visualizer: 'bg-red-500' };
-    return { border: 'border-blue-500', text: 'text-blue-500', bg: 'bg-blue-600', ring: 'border-blue-500', visualizer: 'bg-blue-500' };
-  };
-
-  const colors = getPersonaColors(selectedPersona);
-
-  if (activeScreen === 'auth') {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-20 h-20 rounded-3xl bg-blue-600 flex items-center justify-center text-white text-3xl mb-8 shadow-2xl shadow-blue-500/20">
-          <i className="fas fa-bullseye"></i>
-        </div>
-        <h1 className="text-3xl font-black text-white mb-4">VocalEdge AI</h1>
-        <p className="text-slate-400 mb-8 max-w-xs leading-relaxed">
-          Master communication with native audio interactions. Select a paid project API key to continue.
-        </p>
-        <button 
-          onClick={handleSelectKey}
-          className="px-8 py-4 bg-white text-slate-950 font-bold rounded-2xl hover:scale-105 transition-transform active:scale-95 flex items-center gap-3"
-        >
-          <i className="fas fa-key"></i>
-          Select API Key
-        </button>
-        <a 
-          href="https://ai.google.dev/gemini-api/docs/billing" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="mt-6 text-xs text-slate-500 underline decoration-slate-700"
-        >
-          Billing & Setup Guide
-        </a>
-        {errorMsg && (
-          <div className="mt-8 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">
-            {errorMsg}
-          </div>
-        )}
-      </div>
-    );
-  }
+  // Nav items
+  const navItems = [
+    { id: 'home', icon: 'fa-house', label: lang === 'en' ? 'Practice' : 'تدريب' },
+    { id: 'stats', icon: 'fa-chart-simple', label: lang === 'en' ? 'Metrics' : 'مقاييس' },
+    { id: 'profile', icon: 'fa-user-gear', label: lang === 'en' ? 'Profile' : 'حسابي' }
+  ];
 
   return (
-    <div className={`min-h-screen bg-slate-950 flex flex-col max-w-md mx-auto shadow-2xl relative ${isRTL ? 'font-arabic' : 'font-english'}`}>
-      {showPronunciationWorkshop && analysisResult?.troubleWords && (
-        <PronunciationWorkshop 
-          items={analysisResult.troubleWords}
-          lang={lang}
-          coach={coachRef.current}
-          onClose={() => setShowPronunciationWorkshop(false)}
-        />
-      )}
-
-      <header className="p-6 flex justify-between items-center border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-30">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <i className="fas fa-bullseye text-blue-500"></i>
-            VocalEdge
-          </h1>
-        </div>
+    <div className={`flex flex-col h-full bg-slate-950 text-slate-100 ${isRTL ? 'font-arabic' : 'font-english'}`}>
+      <audio ref={audioRef} className="hidden" />
+      
+      {/* Header */}
+      <header className="px-6 py-4 flex justify-between items-center border-b border-slate-900 bg-slate-950/50 backdrop-blur-lg sticky top-0 z-50">
+        <h1 className="text-xl font-black italic tracking-tighter flex items-center gap-2">
+          <span className="text-blue-500">VOCAL</span>EDGE
+        </h1>
         <LanguageSwitcher current={lang} onChange={setLang} />
       </header>
 
-      <main className="flex-1 overflow-y-auto p-6 pb-24">
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto px-6 py-4 pb-32">
+        {activeScreen === 'auth' && (
+          <div className="h-full flex flex-col items-center justify-center text-center p-4">
+            <div className="w-24 h-24 bg-blue-600 rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl shadow-blue-600/20 mb-8 animate-bounce">
+              <i className="fas fa-bullseye"></i>
+            </div>
+            <h2 className="text-3xl font-black mb-4">Master Every Conversation</h2>
+            <p className="text-slate-400 mb-10 max-w-xs">The world's most direct communication coach. Select your project to begin.</p>
+            <button onClick={() => (window as any).aistudio.openSelectKey().then(() => setActiveScreen('home'))} className="w-full max-w-xs py-4 bg-white text-slate-950 font-black rounded-3xl hover:scale-105 active:scale-95 transition-all shadow-xl">
+              CONNECT API KEY
+            </button>
+          </div>
+        )}
+
         {activeScreen === 'home' && (
           <div className="space-y-8 animate-fadeIn">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-2">{t('welcome')}</h2>
-              <p className="text-slate-400 text-sm">Pick a scenario and test your edge.</p>
+              <h2 className="text-2xl font-black text-white">{t('welcome')}{profile.name ? `, ${profile.name}` : ''}</h2>
+              <p className="text-slate-500 text-sm">Select a combat zone to start training.</p>
             </div>
-
-            <section>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">{t('practiceNow')}</h3>
-              <div className="grid gap-4">
-                {SCENARIOS.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => handleScenarioClick(s)}
-                    className="group flex items-center p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-blue-500 transition-all text-left"
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                      <i className={`fas ${s.icon} text-xl`}></i>
-                    </div>
-                    <div className={`flex-1 ${isRTL ? 'mr-4' : 'ml-4'}`}>
-                      <h4 className="font-semibold text-white">{s.title[lang]}</h4>
-                      <p className="text-xs text-slate-400 line-clamp-1">{s.description[lang]}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            {history.length > 0 && (
-              <section>
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">{t('history')}</h3>
-                <div className="space-y-3">
-                  {history.slice(0, 3).map(item => (
-                    <div key={item.id} className="p-4 rounded-xl bg-slate-900/50 border border-slate-800">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs text-slate-500">{item.personaName} • {item.date}</span>
-                        <span className="text-xs font-bold text-blue-400">{item.confidenceScore}%</span>
-                      </div>
-                      <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500" style={{ width: `${item.confidenceScore}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            <div className="grid gap-4">
+              {SCENARIOS.map(s => (
+                <button key={s.id} onClick={() => { setSelectedScenario(s); setSelectedPersona(s.personas[0]); setActiveScreen('customize'); }} className="group relative flex items-center p-5 rounded-[2rem] bg-slate-900 border border-slate-800 active:scale-[0.98] transition-all overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full -mr-16 -mt-16 group-hover:bg-blue-500/10 transition-all"></div>
+                  <div className="w-14 h-14 rounded-2xl bg-slate-800 flex items-center justify-center text-blue-500 text-2xl group-hover:text-white group-hover:bg-blue-600 transition-all shadow-inner">
+                    <i className={`fas ${s.icon}`}></i>
+                  </div>
+                  <div className={`flex-1 ${isRTL ? 'mr-4 text-right' : 'ml-4 text-left'}`}>
+                    <h4 className="font-bold text-lg">{s.title[lang]}</h4>
+                    <p className="text-xs text-slate-500 line-clamp-1">{s.description[lang]}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         {activeScreen === 'customize' && selectedScenario && (
-          <div className="space-y-8 animate-fadeIn">
-            <div className="flex items-center gap-3">
-               <button onClick={() => setActiveScreen('home')} className="text-slate-500 hover:text-white">
-                 <i className={`fas fa-arrow-${isRTL ? 'right' : 'left'}`}></i>
-               </button>
-               <h2 className="text-2xl font-bold text-white">{t('customize')}</h2>
-            </div>
-
-            <div className="space-y-6">
-              {selectedScenario.type === ScenarioType.CONFIDENCE && (
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">{t('suggestedTopics')}</label>
-                  {isLoadingTopics ? (
-                    <div className="flex items-center gap-2 text-blue-400 text-xs py-2">
-                      <i className="fas fa-sparkles fa-spin"></i>
-                      {t('generatingTopics')}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {suggestedTopics.map((top, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setTopic(top)}
-                          className={`p-3 text-xs text-left rounded-xl border transition-all ${
-                            topic === top ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {top}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">{t('topicPlaceholder')}</label>
-                  <input 
-                    type="text" 
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder={selectedScenario.description[lang]}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                {selectedScenario.type !== ScenarioType.CONFIDENCE && (
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">{t('outcomePlaceholder')}</label>
-                    <input 
-                      type="text" 
-                      value={outcome}
-                      onChange={(e) => setOutcome(e.target.value)}
-                      placeholder="e.g. Negotiate a 10% discount"
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                )}
+          <div className="space-y-6 animate-fadeIn">
+            <button onClick={() => setActiveScreen('home')} className="text-slate-500 mb-2 flex items-center gap-2 font-bold text-sm uppercase tracking-widest">
+              <i className={`fas fa-chevron-${isRTL ? 'right' : 'left'}`}></i> Back
+            </button>
+            <h2 className="text-3xl font-black">{t('customize')}</h2>
+            
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">{t('topicPlaceholder')}</label>
+                <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 focus:ring-2 ring-blue-500 outline-none text-white font-bold placeholder:text-slate-700" placeholder="e.g. Salary Negotiation" />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">{t('selectPersona')}</label>
-                <div className="grid grid-cols-1 gap-3">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">{t('selectPersona')}</label>
+                <div className="grid gap-3">
                   {selectedScenario.personas.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedPersona(p)}
-                      className={`flex items-center p-3 rounded-xl border transition-all text-left ${
-                        selectedPersona?.id === p.id ? 'bg-blue-600/10 border-blue-500' : 'bg-slate-900 border-slate-800'
-                      }`}
-                    >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${selectedPersona?.id === p.id ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                        <i className={`fas ${p.icon}`}></i>
-                      </div>
-                      <div className={`flex-1 ${isRTL ? 'mr-3' : 'ml-3'}`}>
-                        <h4 className="text-sm font-bold text-white">{p.name[lang]}</h4>
-                        <p className="text-[10px] text-slate-500">{p.role[lang]}</p>
+                    <button key={p.id} onClick={() => setSelectedPersona(p)} className={`flex items-center p-4 rounded-2xl border transition-all ${selectedPersona?.id === p.id ? 'bg-blue-600 border-blue-500 shadow-lg shadow-blue-500/20' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
+                      <i className={`fas ${p.icon} text-lg w-8`}></i>
+                      <div className="flex-1 text-left px-2">
+                        <p className={`font-bold text-sm ${selectedPersona?.id === p.id ? 'text-white' : 'text-slate-200'}`}>{p.name[lang]}</p>
+                        <p className="text-[10px] opacity-70">{p.role[lang]}</p>
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">{t('focusSkills')}</label>
-                <div className="flex flex-wrap gap-2">
-                  {FOCUS_SKILLS.filter(s => selectedScenario.type === ScenarioType.CONFIDENCE ? true : s.id !== 'vulnerability').map(skill => (
-                    <button
-                      key={skill.id}
-                      onClick={() => {
-                        setSelectedSkills(prev => 
-                          prev.includes(skill.id) ? prev.filter(s => s !== skill.id) : [...prev, skill.id]
-                        )
-                      }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                        selectedSkills.includes(skill.id) 
-                          ? 'bg-blue-600 border-blue-500 text-white' 
-                          : 'bg-slate-900 border-slate-800 text-slate-500'
-                      }`}
-                    >
-                      {skill.label[lang]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button 
-                onClick={startSession}
-                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:bg-blue-700 transition-all"
-              >
-                {t('startSession')}
+              <button onClick={handleStartSession} className="w-full py-5 bg-blue-600 rounded-3xl text-white font-black text-lg shadow-2xl shadow-blue-900/40 active:scale-95 transition-all">
+                ENGAGE
               </button>
             </div>
           </div>
         )}
 
         {activeScreen === 'practice' && selectedScenario && selectedPersona && (
-          <div className="h-full flex flex-col items-center justify-center text-center space-y-12 py-10">
-            <div className="space-y-4">
-              <div className="relative inline-block">
-                <div className={`w-32 h-32 rounded-full flex items-center justify-center text-4xl bg-slate-900 border-2 ${isSessionActive ? colors.border : 'border-slate-800'} transition-colors duration-500`}>
-                   <i className={`fas ${selectedPersona.icon} ${isSessionActive ? colors.text : 'text-slate-500'}`}></i>
+          <div className="h-full flex flex-col items-center justify-center space-y-12 animate-fadeIn py-10">
+            <div className="text-center space-y-4">
+              <div className="relative mx-auto">
+                <div className={`w-40 h-40 rounded-[3rem] bg-slate-900 border-2 ${isSessionActive ? 'border-blue-500' : 'border-slate-800'} flex items-center justify-center text-5xl text-blue-500 transition-all duration-500`}>
+                  <i className={`fas ${selectedPersona.icon}`}></i>
                 </div>
-                {isSessionActive && (
-                  <div className={`absolute inset-0 rounded-full border-2 ${colors.ring} animate-pulse-ring`}></div>
-                )}
+                {isSessionActive && <div className="absolute inset-0 rounded-[3rem] border-4 border-blue-500 animate-pulse-ring"></div>}
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-white">{selectedPersona.name[lang]}</h2>
-                <p className={`${colors.text} text-sm font-semibold`}>{selectedPersona.role[lang]}</p>
+                <h3 className="text-2xl font-black">{selectedPersona.name[lang]}</h3>
+                <p className="text-blue-500 font-bold uppercase text-[10px] tracking-widest">{selectedPersona.role[lang]}</p>
               </div>
-              <p className="text-slate-500 text-xs italic px-6">"{topic || selectedScenario.description[lang]}"</p>
             </div>
 
-            <div className="w-full min-h-[140px] bg-slate-900/40 rounded-3xl p-6 border border-slate-800/50 flex flex-col justify-center italic text-slate-300">
-              {isSessionActive ? (
-                <>
-                  <VoiceVisualizer color={colors.visualizer} />
-                  <p className="text-sm mt-4 opacity-70 animate-pulse h-12 overflow-hidden px-4">
-                    {lastTranscription || (lang === 'en' ? (selectedPersona.isWarm ? "Take your time... I'm listening." : "Listening...") : (selectedPersona.isWarm ? "خذ وقتك... أنا أسمعك." : "جاري الاستماع..."))}
-                  </p>
-                  <LiveMetrics energy={liveEnergy} pace={livePace} lang={lang} />
-                </>
+            <div className="w-full min-h-[160px] bg-slate-900/50 rounded-[2.5rem] border border-slate-800/50 p-6 flex flex-col justify-center relative overflow-hidden">
+               {isSessionActive ? (
+                 <>
+                   <VoiceVisualizer color="bg-blue-500" />
+                   <p className="mt-4 text-center text-sm italic text-slate-400 animate-pulse line-clamp-2 px-4">
+                     {lastTranscription || "Listening to your tone..."}
+                   </p>
+                   <div className="mt-4 border-t border-slate-800 pt-4">
+                     <LiveMetrics energy={liveEnergy} pace={livePace} lang={lang} />
+                   </div>
+                 </>
+               ) : (
+                 <p className="text-center text-slate-600 font-bold uppercase tracking-widest text-xs">Ready for input</p>
+               )}
+            </div>
+
+            <button onClick={isSessionActive ? handleEndSession : handleStartSession} disabled={isAnalyzing} className={`w-full max-w-xs py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 transition-all ${isSessionActive ? 'bg-red-600 shadow-red-900/40' : 'bg-blue-600 shadow-blue-900/40'}`}>
+              {isAnalyzing ? <><i className="fas fa-spinner fa-spin"></i> ANALYZING</> : <><i className={`fas ${isSessionActive ? 'fa-stop' : 'fa-microphone'}`}></i> {isSessionActive ? 'FINISH' : 'RESUME'}</>}
+            </button>
+          </div>
+        )}
+
+        {activeScreen === 'stats' && (
+          <div className="space-y-8 animate-fadeIn">
+            <h2 className="text-3xl font-black">{t('stats')}</h2>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-6 rounded-[2rem] bg-slate-900 border border-slate-800">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Engagements</p>
+                <h4 className="text-3xl font-black">{history.length}</h4>
+              </div>
+              <div className="p-6 rounded-[2rem] bg-slate-900 border border-slate-800">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Avg Confidence</p>
+                <h4 className="text-3xl font-black text-blue-500">{history.length > 0 ? Math.round(history.reduce((a,c)=>a+c.confidenceScore,0)/history.length) : 0}%</h4>
+              </div>
+            </div>
+
+            <section className="space-y-4">
+              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('history')}</h3>
+              {history.length === 0 ? (
+                <div className="p-12 bg-slate-900/20 border-2 border-dashed border-slate-800 rounded-[2rem] text-center italic text-slate-600">
+                  No combat records found.
+                </div>
               ) : (
-                <p className="text-sm opacity-50">Ready when you are.</p>
-              )}
-              {errorMsg && (
-                <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-                   <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest">{errorMsg}</p>
+                <div className="space-y-4">
+                  {history.map(item => (
+                    <div key={item.id} onClick={() => { setAnalysisResult(item); setActiveScreen('results'); }} className="p-5 bg-slate-900 rounded-[2rem] border border-slate-800 active:scale-95 transition-all cursor-pointer">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-sm">{item.personaName}</span>
+                        <span className="text-blue-500 font-black">{item.confidenceScore}%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] text-slate-500">
+                        <span>{item.date} • {item.scenarioType}</span>
+                        <span className="flex items-center gap-1"><i className="far fa-clock"></i> {formatDuration(item.duration)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
+            </section>
+          </div>
+        )}
+
+        {activeScreen === 'profile' && (
+          <div className="space-y-8 animate-fadeIn">
+            <div className="flex items-center gap-4 mb-2">
+              <div className="w-16 h-16 rounded-[2rem] bg-blue-600 flex items-center justify-center text-white text-3xl shadow-xl shadow-blue-600/10">
+                <i className="fas fa-user-astronaut"></i>
+              </div>
+              <div>
+                <h2 className="text-2xl font-black">{profile.name || "Recruit"}</h2>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Member since {profile.joinedDate}</p>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-4 w-full px-6">
-              <button
-                onClick={isSessionActive ? endSession : startSession}
-                disabled={isAnalyzing}
-                className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all ${
-                  isSessionActive 
-                    ? 'bg-red-500 text-white shadow-xl shadow-red-900/30' 
-                    : `${colors.bg} text-white shadow-xl opacity-90 hover:opacity-100`
-                }`}
-              >
-                {isAnalyzing ? (
-                   <>
-                     <i className="fas fa-circle-notch fa-spin"></i>
-                     {t('analyzing')}
-                   </>
-                ) : (
-                  <>
-                    <i className={`fas ${isSessionActive ? 'fa-stop' : 'fa-microphone'}`}></i>
-                    {isSessionActive ? t('endSession') : t('startSession')}
-                  </>
-                )}
-              </button>
+            <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 p-6 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userName')}</label>
+                <input value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userBio')}</label>
+                <input value={profile.bio} onChange={e => setProfile({...profile, bio: e.target.value})} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userGoal')}</label>
+                <input value={profile.goal} onChange={e => setProfile({...profile, goal: e.target.value})} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('toneVibe')}</label>
+                <select value={profile.preferredTone} onChange={e => setProfile({...profile, preferredTone: e.target.value as any})} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none appearance-none">
+                  <option value="supportive">Warm Support</option>
+                  <option value="brutal">Brutal Honesty</option>
+                </select>
+              </div>
             </div>
+
+            <section className="space-y-4 pt-6 border-t border-slate-900">
+               <button onClick={() => (window as any).aistudio.openSelectKey()} className="w-full flex justify-between p-5 bg-slate-900 rounded-[1.5rem] font-bold active:bg-slate-800 transition-all">
+                  <span className="flex items-center gap-3"><i className="fas fa-key text-blue-500"></i> {t('settingsResetKey')}</span>
+                  <i className="fas fa-chevron-right text-slate-700"></i>
+               </button>
+               <button onClick={() => { if(confirm('Delete all data?')){ setHistory([]); localStorage.clear(); location.reload(); }}} className="w-full flex justify-between p-5 bg-red-600/10 border border-red-600/20 rounded-[1.5rem] font-bold text-red-500 active:bg-red-600/20 transition-all">
+                  <span className="flex items-center gap-3"><i className="fas fa-fire"></i> {t('settingsClearData')}</span>
+               </button>
+            </section>
           </div>
         )}
 
         {activeScreen === 'results' && analysisResult && (
-          <div className="space-y-8 animate-fadeIn pb-10">
-             <div className="text-center">
-                <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full ${selectedPersona?.isWarm ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-500'} mb-4`}>
-                   <i className={`fas ${selectedPersona?.isWarm ? 'fa-heart' : 'fa-check-circle'} text-3xl`}></i>
-                </div>
-                <h2 className="text-2xl font-bold text-white mb-1">{selectedPersona?.isWarm ? 'Session Complete' : t('feedbackTitle')}</h2>
-                <p className="text-slate-400 text-sm">Roleplay with {selectedPersona?.name[lang]}</p>
-             </div>
+          <div className="space-y-8 animate-fadeIn">
+            <div className="text-center py-4">
+              <div className="w-20 h-20 bg-blue-600/10 text-blue-500 rounded-full flex items-center justify-center mx-auto text-4xl mb-4 border border-blue-500/20">
+                <i className="fas fa-shield-halved"></i>
+              </div>
+              <h2 className="text-3xl font-black">{t('feedbackTitle')}</h2>
+              <p className="text-slate-500">Session vs. {analysisResult.personaName}</p>
+              <p className="text-xs text-blue-400 font-bold mt-2 flex items-center justify-center gap-1">
+                <i className="far fa-clock"></i> Duration: {formatDuration(analysisResult.duration)}
+              </p>
+            </div>
 
-             <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center">
-                   <span className="text-xs text-slate-500 uppercase tracking-wider mb-2">{t('confidence')}</span>
-                   <span className="text-3xl font-bold text-white">{analysisResult.confidenceScore}%</span>
-                </div>
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center">
-                   <span className="text-xs text-slate-500 uppercase tracking-wider mb-2">{t('effectiveness')}</span>
-                   <span className="text-3xl font-bold text-white">{analysisResult.effectivenessScore}%</span>
-                </div>
-             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 text-center">
+                <p className="text-[10px] font-black uppercase text-slate-500 mb-1">{t('confidence')}</p>
+                <p className="text-3xl font-black">{analysisResult.confidenceScore}%</p>
+              </div>
+              <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 text-center">
+                <p className="text-[10px] font-black uppercase text-slate-500 mb-1">{t('effectiveness')}</p>
+                <p className="text-3xl font-black">{analysisResult.effectivenessScore}%</p>
+              </div>
+            </div>
 
-             <div className="space-y-4">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <i className={`fas ${selectedPersona?.isWarm ? 'fa-comment-medical' : 'fa-brain'} text-blue-500`}></i>
-                  Coach's Insight
-                </h3>
-                <div className={`p-5 rounded-2xl border ${selectedPersona?.isWarm ? 'bg-orange-500/5 border-orange-500/20' : 'bg-slate-900 border-slate-800'} prose prose-invert max-w-none`}>
-                  <p className="text-slate-300 leading-relaxed italic">
-                    "{analysisResult.feedback}"
-                  </p>
-                </div>
-             </div>
+            <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-slate-800 relative">
+              <i className="fas fa-quote-left absolute top-4 left-6 text-slate-800 text-3xl"></i>
+              <p className="text-slate-300 italic leading-relaxed pt-2">"{analysisResult.feedback}"</p>
+            </div>
 
-             {history[0]?.recordingTurns && history[0].recordingTurns.length > 0 && (
-                <div className="space-y-4">
-                   <h3 className="text-lg font-bold text-white">{t('reviewRecording')}</h3>
-                   <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 max-h-[400px] overflow-y-auto">
-                      {history[0].recordingTurns.map((turn) => (
-                         <div 
-                           key={turn.id} 
-                           className={`flex flex-col gap-2 p-3 rounded-xl border transition-all ${
-                             turn.role === 'user' ? 'bg-slate-800/30 border-slate-700/50 self-end ml-10' : 'bg-blue-600/5 border-blue-500/20 mr-10'
-                           }`}
-                         >
-                            <div className="flex justify-between items-center">
-                               <span className={`text-[10px] font-bold uppercase ${turn.role === 'user' ? 'text-slate-500' : 'text-blue-500'}`}>
-                                 {turn.role === 'user' ? 'You' : selectedPersona?.name[lang]}
-                               </span>
-                               {turn.audioUrl && (
-                                  <button onClick={() => playTurnAudio(turn)} className="text-blue-400"><i className={`fas ${currentPlaybackId === turn.id ? 'fa-pause' : 'fa-play'} text-[10px]`}></i></button>
-                               )}
-                            </div>
-                            <p className="text-xs text-slate-300 leading-relaxed italic">{turn.text}</p>
-                         </div>
-                      ))}
-                   </div>
+            {/* Conversation Timeline Review */}
+            {analysisResult.recordingTurns && analysisResult.recordingTurns.length > 0 && (
+              <section className="space-y-4">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('recordingTurns')}</h3>
+                <div className="space-y-3">
+                  {analysisResult.recordingTurns.map((turn: RecordingTurn) => (
+                    <button 
+                      key={turn.id} 
+                      onClick={() => playTurn(turn)}
+                      className={`w-full text-left p-4 rounded-2xl border transition-all flex items-start gap-3 group relative ${
+                        turn.role === 'user' 
+                          ? 'bg-slate-900/50 border-slate-800' 
+                          : 'bg-blue-600/5 border-blue-500/20'
+                      } ${playingTurnId === turn.id ? 'ring-2 ring-blue-500' : ''}`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        turn.role === 'user' ? 'bg-slate-800 text-slate-400' : 'bg-blue-600 text-white'
+                      }`}>
+                        <i className={`fas ${turn.role === 'user' ? 'fa-user' : 'fa-robot'} text-xs`}></i>
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-sm leading-relaxed ${playingTurnId === turn.id ? 'text-blue-400 font-medium' : 'text-slate-300'}`}>
+                          {turn.text}
+                        </p>
+                      </div>
+                      {turn.audioUrl && (
+                        <div className={`flex-shrink-0 transition-opacity ${playingTurnId === turn.id ? 'opacity-100' : 'opacity-30 group-hover:opacity-100'}`}>
+                          <i className={`fas ${playingTurnId === turn.id ? 'fa-volume-up text-blue-500' : 'fa-play text-slate-500'} text-xs`}></i>
+                        </div>
+                      )}
+                    </button>
+                  ))}
                 </div>
-             )}
+              </section>
+            )}
 
-             <button 
-               onClick={() => setActiveScreen('home')}
-               className="w-full py-4 bg-slate-100 text-slate-950 rounded-2xl font-bold hover:bg-white transition-colors"
-             >
-                Back to Dashboard
-             </button>
+            <button onClick={() => setActiveScreen('home')} className="w-full py-5 bg-white text-slate-950 font-black rounded-3xl shadow-xl">
+              RETURN TO BASE
+            </button>
           </div>
         )}
       </main>
 
-      {activeScreen === 'home' && (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto h-20 bg-slate-950 border-t border-slate-900 flex items-center justify-around px-10 z-20">
-          <button onClick={() => setActiveScreen('home')} className="flex flex-col items-center gap-1 text-blue-500">
-            <i className="fas fa-home text-xl"></i>
-            <span className="text-[10px] font-bold uppercase tracking-widest">Home</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-600 opacity-50 cursor-not-allowed"><i className="fas fa-chart-bar text-xl"></i></button>
-          <button className="flex flex-col items-center gap-1 text-slate-600 opacity-50 cursor-not-allowed"><i className="fas fa-user text-xl"></i></button>
+      {/* Bottom Navigation Bar */}
+      {['home', 'stats', 'profile'].includes(activeScreen) && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/80 backdrop-blur-2xl border-t border-slate-900 px-8 py-4 flex justify-between items-center z-50">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setActiveScreen(item.id as any)} className={`flex flex-col items-center gap-1 transition-all active:scale-90 ${activeScreen === item.id ? 'text-blue-500' : 'text-slate-600'}`}>
+              <i className={`fas ${item.icon} text-xl`}></i>
+              <span className="text-[9px] font-black uppercase tracking-widest">{item.label}</span>
+              {activeScreen === item.id && <div className="w-1 h-1 bg-blue-500 rounded-full mt-1"></div>}
+            </button>
+          ))}
         </nav>
       )}
     </div>
