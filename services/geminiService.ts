@@ -347,7 +347,15 @@ export class CommunicationCoach {
     - feedback (detailed critique or encouragement)
     - skillScores (object focus skills: 0-100)
     - keyFailures (array - or key achievements/growth points if warm)
-    - troubleWords (array: {word, phonetic, tips})
+    - troubleWords (array of pronunciation trouble spots. 
+        For each word, provide:
+        - word: the word itself
+        - phonetic: IPA or simple phonetic guide
+        - tips: Record<Language, string> for general advice
+        - mouthPosition: Record<Language, string> describing lip/jaw shape (e.g., "Round lips into an 'O' shape")
+        - tonguePlacement: Record<Language, string> describing where the tongue should be (e.g., "Press tip of tongue against back of top teeth")
+        - commonPitfalls: Record<Language, string> describing what usually goes wrong (e.g., "Users often substitute this with a 'D' sound")
+    )
 
     History:
     ${history}`;
@@ -372,7 +380,10 @@ export class CommunicationCoach {
                 properties: {
                   word: { type: Type.STRING },
                   phonetic: { type: Type.STRING },
-                  tips: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } }
+                  tips: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
+                  mouthPosition: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
+                  tonguePlacement: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
+                  commonPitfalls: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } }
                 }
               }
             }
@@ -413,13 +424,14 @@ export class CommunicationCoach {
   async analyzePronunciationAttempt(target: string, attemptAudioBase64: string, lang: Language) {
     const ai = this.getAIInstance();
     const prompt = `Analyze this audio of a user attempting to pronounce the word/phrase: "${target}".
+    Evaluate the pronunciation accuracy, tone, and clarity.
     Return JSON: { score: number, feedback: string, needsCorrection: boolean }`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: [
         { text: prompt },
-        { inlineData: { mimeType: 'audio/pcm;rate=16000', data: attemptAudioBase64 } }
+        { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } }
       ],
       config: { responseMimeType: 'application/json' }
     });

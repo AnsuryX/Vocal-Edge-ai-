@@ -75,6 +75,13 @@ const App: React.FC = () => {
     check();
   }, []);
 
+  // Set default topic when scenario changes
+  useEffect(() => {
+    if (selectedScenario) {
+      setTopic(selectedScenario.description[lang]);
+    }
+  }, [selectedScenario, lang]);
+
   const t = (key: keyof typeof TRANSLATIONS) => TRANSLATIONS[key][lang];
 
   const formatDuration = (seconds: number) => {
@@ -120,7 +127,6 @@ const App: React.FC = () => {
       if (!text.trim()) { setActiveScreen('home'); return; }
       const res = await coachRef.current.getDetailedAnalysis(text, { scenario: selectedScenario!, persona: selectedPersona!, topic, outcome, focusSkills: selectedSkills }, lang);
       
-      // Crucial: Pass recordedTurns to analysisResult for display on the Results screen
       setAnalysisResult({ ...res, duration, recordingTurns: recordedTurns }); 
       
       const newEntry: SessionResult = {
@@ -132,7 +138,8 @@ const App: React.FC = () => {
         feedback: res.feedback,
         duration: duration,
         personaName: selectedPersona!.name[lang],
-        recordingTurns: recordedTurns
+        recordingTurns: recordedTurns,
+        troubleWords: res.troubleWords
       };
       setHistory(prev => [newEntry, ...prev]);
       setActiveScreen('results');
@@ -222,6 +229,27 @@ const App: React.FC = () => {
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">{t('topicPlaceholder')}</label>
                 <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 focus:ring-2 ring-blue-500 outline-none text-white font-bold placeholder:text-slate-700" placeholder="e.g. Salary Negotiation" />
+                
+                {selectedScenario.suggestedTopics?.[lang] && (
+                  <div className="mt-4 space-y-3">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{t('suggestedTopics')}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedScenario.suggestedTopics[lang].map((suggestion, idx) => (
+                        <button 
+                          key={idx} 
+                          onClick={() => setTopic(suggestion)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            topic === suggestion 
+                              ? 'bg-blue-600 border-blue-500 text-white shadow-lg' 
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -399,6 +427,28 @@ const App: React.FC = () => {
               <p className="text-slate-300 italic leading-relaxed pt-2">"{analysisResult.feedback}"</p>
             </div>
 
+            {/* Pronunciation Trouble Words */}
+            {analysisResult.troubleWords && analysisResult.troubleWords.length > 0 && (
+              <section className="space-y-4">
+                 <div className="flex justify-between items-center">
+                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Trouble Words</h3>
+                    <button 
+                      onClick={() => setShowPronunciationWorkshop(true)}
+                      className="text-[10px] font-black text-blue-500 uppercase tracking-widest underline"
+                    >
+                      {t('pronunciationTitle')}
+                    </button>
+                 </div>
+                 <div className="flex flex-wrap gap-2">
+                    {analysisResult.troubleWords.map((item: any, idx: number) => (
+                      <div key={idx} className="px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold text-slate-300">
+                        {item.word}
+                      </div>
+                    ))}
+                 </div>
+              </section>
+            )}
+
             {/* Conversation Timeline Review */}
             {analysisResult.recordingTurns && analysisResult.recordingTurns.length > 0 && (
               <section className="space-y-4">
@@ -441,6 +491,16 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Overlay: Pronunciation Workshop */}
+      {showPronunciationWorkshop && analysisResult?.troubleWords && (
+        <PronunciationWorkshop 
+          items={analysisResult.troubleWords}
+          lang={lang}
+          coach={coachRef.current}
+          onClose={() => setShowPronunciationWorkshop(false)}
+        />
+      )}
 
       {/* Bottom Navigation Bar */}
       {['home', 'stats', 'profile'].includes(activeScreen) && (

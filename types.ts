@@ -24,6 +24,7 @@ export interface Scenario {
   description: Record<Language, string>;
   icon: string;
   personas: Persona[];
+  suggestedTopics?: Record<Language, string[]>;
 }
 
 export interface SessionConfig {
@@ -38,6 +39,9 @@ export interface PronunciationItem {
   word: string;
   phonetic?: string;
   tips: Record<Language, string>;
+  mouthPosition?: Record<Language, string>;
+  tonguePlacement?: Record<Language, string>;
+  commonPitfalls?: Record<Language, string>;
 }
 
 export interface RecordingTurn {

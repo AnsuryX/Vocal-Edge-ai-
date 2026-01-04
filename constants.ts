@@ -17,6 +17,11 @@ export const SCENARIOS: Scenario[] = [
     title: { en: 'Confidence Booster', ar_msa: 'بناء الثقة', ar_khaleeji: 'فضفض وارتكي' },
     description: { en: 'A safe space to share and open up.', ar_msa: 'مساحة آمنة للمشاركة والانفتاح.', ar_khaleeji: 'مكان آمن للسوالف والفضفضة.' },
     icon: 'fa-heart',
+    suggestedTopics: {
+      en: ['Sharing a personal challenge', 'Talking about a recent achievement', 'Exploring future dreams'],
+      ar_msa: ['مشاركة تحدٍ شخصي', 'التحدث عن إنجاز أخير', 'استكشاف أحلام المستقبل'],
+      ar_khaleeji: ['مشاركة تحدي واجهته', 'سالفة عن شي حققته', 'أحلامك بالمستقبل']
+    },
     personas: [
       {
         id: 'c1',
@@ -42,6 +47,11 @@ export const SCENARIOS: Scenario[] = [
     title: { en: 'Sales Pitch', ar_msa: 'عرض بيع', ar_khaleeji: 'عرض بيع' },
     description: { en: 'Master the art of closing deals.', ar_msa: 'إتقان فن إبرام الصفقات.', ar_khaleeji: 'تعلم شلون تخلص البيعة.' },
     icon: 'fa-chart-line',
+    suggestedTopics: {
+      en: ['Selling a new software tool', 'Negotiating a real estate deal', 'Pitching a creative agency service'],
+      ar_msa: ['بيع أداة برمجية جديدة', 'التفاوض على صفقة عقارية', 'عرض خدمة وكالة إبداعية'],
+      ar_khaleeji: ['بيع برنامج جديد', 'مكاسر في صفقة عقار', 'عرض خدمات شركة تصميم']
+    },
     personas: [
       {
         id: 's1',
@@ -65,6 +75,11 @@ export const SCENARIOS: Scenario[] = [
     title: { en: 'Everyday Dialogue', ar_msa: 'حوار يومي', ar_khaleeji: 'سوالف عادية' },
     description: { en: 'Build social confidence.', ar_msa: 'بناء الثقة الاجتماعية.', ar_khaleeji: 'قو قلبك بالسوالف.' },
     icon: 'fa-comments',
+    suggestedTopics: {
+      en: ['Making small talk at a party', 'Meeting a neighbor for the first time', 'Chatting with a coworker at lunch'],
+      ar_msa: ['تبادل أطراف الحديث في حفلة', 'مقابلة جار لأول مرة', 'الدردشة مع زميل في الغداء'],
+      ar_khaleeji: ['سوالف عادية في حفلة', 'أول مرة تقابل جارك', 'دردشة مع زميل وقت الغدا']
+    },
     personas: [
       {
         id: 'n1',
@@ -88,6 +103,11 @@ export const SCENARIOS: Scenario[] = [
     title: { en: 'Heated Debate', ar_msa: 'مناظرة حادة', ar_khaleeji: 'هوشة محترمة' },
     description: { en: 'Stay calm under pressure.', ar_msa: 'ابق هادئاً تحت الضغط.', ar_khaleeji: 'خلك هادي وقت النقاش.' },
     icon: 'fa-fire',
+    suggestedTopics: {
+      en: ['The ethics of AI development', 'Work-from-home vs. office culture', 'Modern urban planning priorities'],
+      ar_msa: ['أخلاقيات تطوير الذكاء الاصطناعي', 'العمل من المنزل مقابل ثقافة المكتب', 'أولويات التخطيط الحضري الحديث'],
+      ar_khaleeji: ['أخلاقيات الذكاء الاصطناعي', 'الدوام من البيت ولا المكتب', 'مستقبل المدن وتخطيطها']
+    },
     personas: [
       {
         id: 'd1',
@@ -151,7 +171,7 @@ export const TRANSLATIONS = {
   tryAgain: { en: 'Try Again', ar_msa: 'حاول مرة أخرى', ar_khaleeji: 'جرب مرة ثانية' },
   reviewRecording: { en: 'Review Recording', ar_msa: 'مراجعة التسجيل', ar_khaleeji: 'اسمع الجلسة' },
   recordingTurns: { en: 'Conversation Timeline', ar_msa: 'الجدول الزمني للحوار', ar_khaleeji: 'تسلسل السوالف' },
-  suggestedTopics: { en: 'Suggested Topics', ar_msa: 'مواضيع مقترحة', ar_khaleeji: 'مواضيع للسوالف' },
+  suggestedTopics: { en: 'Quick Suggestions', ar_msa: 'اقتراحات سريعة', ar_khaleeji: 'مواضيع جاهزة' },
   generatingTopics: { en: 'Seeking inspiration...', ar_msa: 'البحث عن إلهام...', ar_khaleeji: 'قاعدين ندور مواضيع...' },
   profile: { en: 'User Account', ar_msa: 'حساب المستخدم', ar_khaleeji: 'بياناتي الشخصية' },
   stats: { en: 'Skill Metrics', ar_msa: 'مقاييس المهارة', ar_khaleeji: 'إحصائياتي' },
