@@ -1,6 +1,5 @@
-// Using Cloudflare Workers Assets via `env.ASSETS` (modern approach).
-// Wrangler will upload the `dist` folder as assets and bind them to `env.ASSETS`.
-async function handleApiProxy(request, env) {
+// Secure Gemini proxy and static asset server (Workers Assets)
+async function handleGeminiProxy(request, env) {
   if (request.method !== 'POST') {
     return new Response('Only POST allowed', { status: 405 });
   }
@@ -12,34 +11,33 @@ async function handleApiProxy(request, env) {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  const { target, method = 'POST', headers = {}, body } = payload;
-  if (!target) return new Response('Missing `target` in body', { status: 400 });
-
-  const proxiedHeaders = new Headers(headers || {});
-  // Ensure Authorization uses the server-side secret
+  // HARDCODED URL: Prevent your worker from being used as a generic open proxy
+  const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+  
+  const proxiedHeaders = new Headers();
+  proxiedHeaders.set('Content-Type', 'application/json');
+  
+  // FIX: Use x-goog-api-key instead of Authorization Bearer
   if (env.GEMINI_API_KEY) {
-    proxiedHeaders.set('Authorization', `Bearer ${env.GEMINI_API_KEY}`);
-  }
-
-  // If JSON body and no content-type, set it
-  let fetchBody = undefined;
-  if (body !== undefined) {
-    if (typeof body === 'string' || body instanceof Uint8Array) {
-      fetchBody = body;
-    } else {
-      if (!proxiedHeaders.has('Content-Type')) proxiedHeaders.set('Content-Type', 'application/json');
-      fetchBody = JSON.stringify(body);
-    }
+    proxiedHeaders.set('x-goog-api-key', env.GEMINI_API_KEY);
+  } else {
+    return new Response('Worker Secret GEMINI_API_KEY is missing', { status: 500 });
   }
 
   try {
-    const resp = await fetch(target, { method, headers: proxiedHeaders, body: fetchBody });
+    const resp = await fetch(GEMINI_URL, { 
+      method: 'POST', 
+      headers: proxiedHeaders, 
+      body: JSON.stringify(payload) // Just pass the Gemini request body directly
+    });
+
     const respBody = await resp.arrayBuffer();
-    const responseHeaders = new Headers(resp.headers);
-    responseHeaders.delete('transfer-encoding');
-    return new Response(respBody, { status: resp.status, headers: responseHeaders });
+    return new Response(respBody, { 
+      status: resp.status, 
+      headers: { 'Content-Type': 'application/json' } 
+    });
   } catch (err) {
-    return new Response(`Proxy error: ${err.message || err}`, { status: 502 });
+    return new Response(`Proxy error: ${err.message}`, { status: 502 });
   }
 }
 
@@ -47,21 +45,18 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Handle API proxy routes under /api/
-    if (url.pathname.startsWith('/api/')) {
-      // Use /api/proxy for generic forwarding
-      if (url.pathname === '/api/proxy') {
-        return handleApiProxy(request, env);
-      }
-      return new Response('Unknown API endpoint', { status: 404 });
+    // Securely proxy only this specific endpoint
+    if (url.pathname === '/api/proxy') {
+      return handleGeminiProxy(request, env);
     }
 
-    // Serve static assets using the modern Workers Assets binding.
+    // Serve static assets for everything else
     try {
       const assetResponse = await env.ASSETS.fetch(request);
-      // If asset exists, return it. If not, fallback to index.html for SPA routing.
       if (assetResponse.status !== 404) return assetResponse;
-      return await env.ASSETS.fetch(new Request(`${new URL(request.url).origin}/index.html`));
+
+      // SPA Fallback: If asset not found, serve index.html for React Router
+      return await env.ASSETS.fetch(new Request(`${url.origin}/index.html`));
     } catch (err) {
       return new Response('Asset error', { status: 500 });
     }
