@@ -522,3 +522,41 @@ export class CommunicationCoach {
       return JSON.parse(response.text);
   }
 }
+
+// Simple helper that posts a Gemini-style request to the Worker proxy using a relative path.
+export async function generateAIVideoScript(prompt: string): Promise<string> {
+  try {
+    const response = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Send the prompt in the format Gemini expects
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Worker Error: ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // Extract the text content from Gemini's response shape
+    return (
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ??
+      JSON.stringify(data)
+    );
+  } catch (error) {
+    console.error('Gemini Service Error:', error);
+    throw error;
+  }
+}

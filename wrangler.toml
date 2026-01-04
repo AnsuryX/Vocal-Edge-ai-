@@ -1,7 +1,7 @@
-name = "vocaledge-ai-proxy"
-main = "workers/proxy/index.js"
-compatibility_date = "2026-01-04"
+name = "vocal-edge-ai"
+main = "src/worker/index.ts" # Make sure this file EXISTS at this path!
+compatibility_date = "2024-11-01"
 
 [assets]
-bucket = "./dist" # Where Vite builds your React files
-binding = "ASSETS"   # This creates `env.ASSETS` in the worker runtime
+directory = "./dist" # This is where 'npm run build' puts your React files
+binding = "ASSETS"
