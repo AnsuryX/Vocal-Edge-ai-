@@ -2,6 +2,5 @@ name = "vocaledge-ai-proxy"
 main = "workers/proxy/index.js"
 compatibility_date = "2026-01-04"
 
-[site]
+[assets]
 bucket = "dist"
-entry-point = "workers/proxy"
