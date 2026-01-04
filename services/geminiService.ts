@@ -95,7 +95,10 @@ export class CommunicationCoach {
   constructor() {}
 
   private getAIInstance() {
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // NOTE: Vite only exposes env vars prefixed with `VITE_` to client code.
+    // This will embed the key into the client bundle if set — see README security notes.
+    const key = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    return new GoogleGenAI({ apiKey: key });
   }
 
   async generateSuggestedTopics(lang: Language): Promise<string[]> {
