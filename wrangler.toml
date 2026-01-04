@@ -1,4 +1,4 @@
-name = "vocaledge-ai-proxy"
+name = "vocal-edge-ai-couchv1"
 main = "workers/proxy/index.js"
 compatibility_date = "2026-01-04"
 
