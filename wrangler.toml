@@ -1,6 +1,7 @@
-name = "vocaledge-ai-proxy"
-main = "workers/proxy/index.js"
-compatibility_date = "2026-01-04"
+name = "vocal-edge-ai"
+main = "src/worker/index.ts"
+compatibility_date = "2025-01-01"
 
 [assets]
-bucket = "dist"
+directory = "./dist"
+binding = "ASSETS"
