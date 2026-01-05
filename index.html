@@ -16,6 +16,7 @@
     "react-dom": "https://esm.sh/react-dom@19.0.0",
     "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?external=react",
     "@google/genai": "https://esm.sh/@google/genai@0.21.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.1",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/"
   }
@@ -59,6 +60,23 @@
         animation: pulse-ring 1.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
       }
 
+      @keyframes slideDown {
+        from { transform: translateY(-100%); }
+        to { transform: translateY(0); }
+      }
+      .animate-slideDown {
+        animation: slideDown 0.4s ease-out;
+      }
+
+      @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px); }
+        75% { transform: translateX(5px); }
+      }
+      .animate-shake {
+        animation: shake 0.2s ease-in-out 2;
+      }
+
       ::-webkit-scrollbar {
         width: 0px;
         background: transparent;
@@ -68,8 +86,6 @@
   <body>
     <div id="root" class="app-container"></div>
     <script>
-      // This ensures that process.env.API_KEY works in the browser
-      // Cloudflare build processes often inject this, but we provide a fallback object here.
       window.process = window.process || { env: {} };
     </script>
     <script type="module" src="index.tsx"></script>

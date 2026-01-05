@@ -138,148 +138,150 @@ export class CommunicationCoach {
     
     const ai = this.getAIInstance();
     
-    this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-    this.audioContextOut = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    
-    if (this.audioContextIn.state === 'suspended') await this.audioContextIn.resume();
-    if (this.audioContextOut.state === 'suspended') await this.audioContextOut.resume();
+    try {
+      this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      this.audioContextOut = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      
+      if (this.audioContextIn.state === 'suspended') await this.audioContextIn.resume();
+      if (this.audioContextOut.state === 'suspended') await this.audioContextOut.resume();
 
-    this.analyser = this.audioContextIn.createAnalyser();
-    this.analyser.fftSize = 256;
-    
-    this.turns = [];
-    this.currentUserPCM = [];
-    this.currentAiPCM = [];
-    this.peaks = 0;
-    this.nextStartTime = 0;
-    
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    
-    const sessionPromise = ai.live.connect({
-      model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: lang === 'en' ? 'Zephyr' : 'Kore' } },
+      this.analyser = this.audioContextIn.createAnalyser();
+      this.analyser.fftSize = 256;
+      
+      this.turns = [];
+      this.currentUserPCM = [];
+      this.currentAiPCM = [];
+      this.peaks = 0;
+      this.nextStartTime = 0;
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      const sessionPromise = ai.live.connect({
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: lang === 'en' ? 'Zephyr' : 'Kore' } },
+          },
+          systemInstruction: getSystemInstruction(config, lang),
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
         },
-        systemInstruction: getSystemInstruction(config, lang),
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      },
-      callbacks: {
-        onopen: () => {
-          const source = this.audioContextIn!.createMediaStreamSource(stream);
-          source.connect(this.analyser!);
-          
-          const scriptProcessor = this.audioContextIn!.createScriptProcessor(4096, 1, 1);
-          scriptProcessor.onaudioprocess = (e) => {
-            if (!this.session) return;
-            const inputData = e.inputBuffer.getChannelData(0);
+        callbacks: {
+          onopen: () => {
+            const source = this.audioContextIn!.createMediaStreamSource(stream);
+            source.connect(this.analyser!);
             
-            for (let i = 0; i < inputData.length; i++) {
-              const val = inputData[i] * 32768;
-              this.currentUserPCM.push(val);
+            const scriptProcessor = this.audioContextIn!.createScriptProcessor(4096, 1, 1);
+            scriptProcessor.onaudioprocess = (e) => {
+              const inputData = e.inputBuffer.getChannelData(0);
               
-              if (Math.abs(inputData[i]) > 0.15 && Date.now() - this.lastPeakTime > 150) {
-                this.peaks++;
-                this.lastPeakTime = Date.now();
+              for (let i = 0; i < inputData.length; i++) {
+                const val = inputData[i] * 32768;
+                this.currentUserPCM.push(val);
+                
+                if (Math.abs(inputData[i]) > 0.15 && Date.now() - this.lastPeakTime > 150) {
+                  this.peaks++;
+                  this.lastPeakTime = Date.now();
+                }
               }
-            }
 
-            const pcmBlob = createBlob(inputData);
-            sessionPromise.then((session: any) => {
-              try {
+              const pcmBlob = createBlob(inputData);
+              sessionPromise.then((session: any) => {
                 session.sendRealtimeInput({ media: pcmBlob });
-              } catch (err) {
-                console.warn("Failed to send realtime input:", err);
+              }).catch(err => {
+                console.warn("Input stream interrupted:", err);
+              });
+            };
+            source.connect(scriptProcessor);
+            scriptProcessor.connect(this.audioContextIn!.destination);
+          },
+          onmessage: async (message: LiveServerMessage) => {
+            if (message.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
+              const base64Audio = message.serverContent.modelTurn.parts[0].inlineData.data;
+              const audioData = decode(base64Audio);
+              const int16Data = new Int16Array(audioData.buffer);
+              
+              for (let i = 0; i < int16Data.length; i++) {
+                this.currentAiPCM.push(int16Data[i]);
               }
-            });
-          };
-          source.connect(scriptProcessor);
-          scriptProcessor.connect(this.audioContextIn!.destination);
-        },
-        onmessage: async (message: LiveServerMessage) => {
-          if (message.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
-            const base64Audio = message.serverContent.modelTurn.parts[0].inlineData.data;
-            const audioData = decode(base64Audio);
-            const int16Data = new Int16Array(audioData.buffer);
-            
-            for (let i = 0; i < int16Data.length; i++) {
-              this.currentAiPCM.push(int16Data[i]);
+
+              this.nextStartTime = Math.max(this.nextStartTime, this.audioContextOut!.currentTime);
+              const audioBuffer = await decodeAudioData(audioData, this.audioContextOut!, 24000, 1);
+              const source = this.audioContextOut!.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(this.audioContextOut!.destination);
+              source.addEventListener('ended', () => this.sources.delete(source));
+              source.start(this.nextStartTime);
+              this.nextStartTime += audioBuffer.duration;
+              this.sources.add(source);
             }
 
-            this.nextStartTime = Math.max(this.nextStartTime, this.audioContextOut!.currentTime);
-            const audioBuffer = await decodeAudioData(audioData, this.audioContextOut!, 24000, 1);
-            const source = this.audioContextOut!.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(this.audioContextOut!.destination);
-            source.addEventListener('ended', () => this.sources.delete(source));
-            source.start(this.nextStartTime);
-            this.nextStartTime += audioBuffer.duration;
-            this.sources.add(source);
-          }
-
-          if (message.serverContent?.interrupted) {
-            this.sources.forEach(s => {
-              try { s.stop(); } catch(e) {}
-            });
-            this.sources.clear();
-            this.nextStartTime = 0;
-            callbacks.onInterrupted?.();
-          }
-
-          if (message.serverContent?.inputTranscription) {
-            const text = message.serverContent.inputTranscription.text;
-            this.currentUserText += text;
-            this.transcriptionHistory.push(`User: ${text}`);
-            callbacks.onTranscriptionUpdate?.(`User: ${text}`);
-          }
-          if (message.serverContent?.outputTranscription) {
-            const text = message.serverContent.outputTranscription.text;
-            this.currentAiText += text;
-            this.transcriptionHistory.push(`AI: ${text}`);
-            callbacks.onTranscriptionUpdate?.(`AI: ${text}`);
-          }
-
-          if (message.serverContent?.turnComplete) {
-            if (this.currentUserText) {
-              const userWav = pcmToWav(new Int16Array(this.currentUserPCM), 16000);
-              this.turns.push({
-                id: `u-${Date.now()}`,
-                role: 'user',
-                text: this.currentUserText,
-                audioUrl: URL.createObjectURL(userWav)
+            if (message.serverContent?.interrupted) {
+              this.sources.forEach(s => {
+                try { s.stop(); } catch(e) {}
               });
-              this.currentUserPCM = [];
-              this.currentUserText = '';
+              this.sources.clear();
+              this.nextStartTime = 0;
+              callbacks.onInterrupted?.();
             }
 
-            if (this.currentAiText) {
-              const aiWav = pcmToWav(new Int16Array(this.currentAiPCM), 24000);
-              this.turns.push({
-                id: `m-${Date.now()}`,
-                role: 'model',
-                text: this.currentAiText,
-                audioUrl: URL.createObjectURL(aiWav)
-              });
-              this.currentAiPCM = [];
-              this.currentAiText = '';
+            if (message.serverContent?.inputTranscription) {
+              const text = message.serverContent.inputTranscription.text;
+              this.currentUserText += text;
+              this.transcriptionHistory.push(`User: ${text}`);
+              callbacks.onTranscriptionUpdate?.(`User: ${text}`);
             }
-          }
-        },
-        onclose: () => {
-          this.session = null;
-          callbacks.onClose?.();
-        },
-        onerror: (e: any) => {
-          console.error('Gemini Live Error:', e);
-          this.session = null;
-          callbacks.onerror?.(e);
-        },
-      }
-    });
+            if (message.serverContent?.outputTranscription) {
+              const text = message.serverContent.outputTranscription.text;
+              this.currentAiText += text;
+              this.transcriptionHistory.push(`AI: ${text}`);
+              callbacks.onTranscriptionUpdate?.(`AI: ${text}`);
+            }
 
-    this.session = await sessionPromise;
+            if (message.serverContent?.turnComplete) {
+              if (this.currentUserText) {
+                const userWav = pcmToWav(new Int16Array(this.currentUserPCM), 16000);
+                this.turns.push({
+                  id: `u-${Date.now()}`,
+                  role: 'user',
+                  text: this.currentUserText,
+                  audioUrl: URL.createObjectURL(userWav)
+                });
+                this.currentUserPCM = [];
+                this.currentUserText = '';
+              }
+
+              if (this.currentAiText) {
+                const aiWav = pcmToWav(new Int16Array(this.currentAiPCM), 24000);
+                this.turns.push({
+                  id: `m-${Date.now()}`,
+                  role: 'model',
+                  text: this.currentAiText,
+                  audioUrl: URL.createObjectURL(aiWav)
+                });
+                this.currentAiPCM = [];
+                this.currentAiText = '';
+              }
+            }
+          },
+          onclose: () => {
+            this.session = null;
+            callbacks.onClose?.();
+          },
+          onerror: (e: any) => {
+            console.error('Gemini Live Error:', e);
+            this.session = null;
+            callbacks.onerror?.(e);
+          },
+        }
+      });
+
+      this.session = await sessionPromise;
+    } catch (e) {
+      this.stopSession();
+      throw e;
+    }
   }
 
   getRealtimeMetrics() {
@@ -417,11 +419,25 @@ export class CommunicationCoach {
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [
-        { text: prompt },
-        { inlineData: { mimeType: 'audio/pcm;rate=16000', data: attemptAudioBase64 } }
-      ],
-      config: { responseMimeType: 'application/json' }
+      // Fix: contents must be of type Content (object with parts) or Content[]
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: 'audio/pcm;rate=16000', data: attemptAudioBase64 } }
+        ]
+      },
+      config: { 
+        responseMimeType: 'application/json',
+        // Fix: Added responseSchema for structured and reliable JSON output
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            score: { type: Type.NUMBER },
+            feedback: { type: Type.STRING },
+            needsCorrection: { type: Type.BOOLEAN }
+          }
+        }
+      }
     });
 
     return JSON.parse(response.text);
