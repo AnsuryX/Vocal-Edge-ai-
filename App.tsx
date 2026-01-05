@@ -11,7 +11,7 @@ import LiveMetrics from './components/LiveMetrics.tsx';
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('en');
   const [isRTL, setIsRTL] = useState(false);
-  const [activeScreen, setActiveScreen] = useState<'loading' | 'identity' | 'auth' | 'home' | 'customize' | 'practice' | 'results' | 'stats' | 'profile'>('loading');
+  const [activeScreen, setActiveScreen] = useState<'loading' | 'landing' | 'identity' | 'auth' | 'home' | 'customize' | 'practice' | 'results' | 'stats' | 'profile'>('loading');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
@@ -56,19 +56,27 @@ const App: React.FC = () => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'ar';
   }, [lang]);
 
-  // Handle Supabase Auth Session
+  // Handle Supabase Auth Session and App Bootstrapping
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const bootstrap = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
-      if (!session) setActiveScreen('identity');
-    });
+      
+      if (!session) {
+        setActiveScreen('landing');
+      } else {
+        await checkGeminiKey();
+      }
+    };
+
+    bootstrap();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session) {
         checkGeminiKey();
       } else {
-        setActiveScreen('identity');
+        setActiveScreen('landing');
       }
     });
 
@@ -84,43 +92,46 @@ const App: React.FC = () => {
 
   const fetchUserData = async () => {
     if (!user) return;
-    
-    // Fetch Profile
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    
-    if (profileData) {
-      setProfile({
-        name: profileData.name || '',
-        bio: profileData.bio || '',
-        goal: profileData.goal || '',
-        preferredTone: profileData.preferred_tone || 'supportive',
-        joinedDate: profileData.created_at || new Date().toLocaleDateString()
-      });
-    }
+    try {
+      // Fetch Profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (profileData) {
+        setProfile({
+          name: profileData.name || '',
+          bio: profileData.bio || '',
+          goal: profileData.goal || '',
+          preferredTone: profileData.preferred_tone || 'supportive',
+          joinedDate: profileData.created_at || new Date().toLocaleDateString()
+        });
+      }
 
-    // Fetch History
-    const { data: historyData } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+      // Fetch History
+      const { data: historyData } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    if (historyData) {
-      setHistory(historyData.map(s => ({
-        id: s.id,
-        date: new Date(s.created_at).toLocaleDateString(),
-        scenarioType: s.scenario_type,
-        confidenceScore: s.confidence_score,
-        effectivenessScore: s.effectiveness_score,
-        feedback: s.feedback,
-        duration: s.duration,
-        personaName: s.persona_name,
-        recordingTurns: s.recording_turns
-      })));
+      if (historyData) {
+        setHistory(historyData.map(s => ({
+          id: s.id,
+          date: new Date(s.created_at).toLocaleDateString(),
+          scenarioType: s.scenario_type,
+          confidenceScore: s.confidence_score,
+          effectivenessScore: s.effectiveness_score,
+          feedback: s.feedback,
+          duration: s.duration,
+          personaName: s.persona_name,
+          recordingTurns: s.recording_turns
+        })));
+      }
+    } catch (e) {
+      console.error("Error fetching user data", e);
     }
   };
 
@@ -144,9 +155,15 @@ const App: React.FC = () => {
     setErrorMsg(null);
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            data: { name: email.split('@')[0] }
+          }
+        });
         if (error) throw error;
-        setErrorMsg("Check your email for confirmation!");
+        setErrorMsg("Success! Check your email for a confirmation link.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -276,7 +293,6 @@ const App: React.FC = () => {
 
   const t = (key: keyof typeof TRANSLATIONS) => TRANSLATIONS[key][lang];
 
-  // Fix: Defined the missing navItems array for the navigation bar
   const navItems = [
     { id: 'home', label: t('practiceNow'), icon: 'fa-bullseye' },
     { id: 'stats', label: t('stats'), icon: 'fa-chart-bar' },
@@ -293,9 +309,68 @@ const App: React.FC = () => {
     );
   }
 
+  if (activeScreen === 'landing') {
+    return (
+      <div className="flex flex-col h-full bg-slate-950 text-white relative overflow-hidden">
+        {/* Decorative Background Elements */}
+        <div className="absolute top-0 right-0 w-[80vw] h-[80vw] bg-blue-600/10 rounded-full -mr-[40vw] -mt-[40vw] blur-[100px]"></div>
+        <div className="absolute bottom-0 left-0 w-[60vw] h-[60vw] bg-indigo-600/10 rounded-full -ml-[30vw] -mb-[30vw] blur-[80px]"></div>
+
+        <div className="flex-1 flex flex-col px-8 py-16 z-10">
+          <div className="mb-12">
+            <h1 className="text-5xl font-black italic tracking-tighter mb-2">
+              <span className="text-blue-500">VOCAL</span>EDGE
+            </h1>
+            <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[10px]">Elite AI Communication Training</p>
+          </div>
+
+          <div className="flex-1 space-y-12">
+            <div className="space-y-4">
+               <h2 className="text-4xl font-black leading-tight">Master Every <br/><span className="text-blue-400">Interaction.</span></h2>
+               <p className="text-slate-400 text-sm leading-relaxed max-w-[280px]">
+                 Practice high-stakes conversations with AI personas that challenge your logic, tone, and confidence in real-time.
+               </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+               <div className="flex items-start gap-4 p-4 rounded-3xl bg-slate-900/50 border border-white/5 backdrop-blur-sm">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-500"><i className="fas fa-microphone-lines"></i></div>
+                  <div>
+                    <h4 className="font-bold text-sm">Real-time Feedback</h4>
+                    <p className="text-[11px] text-slate-500">Live energy and pace analysis.</p>
+                  </div>
+               </div>
+               <div className="flex items-start gap-4 p-4 rounded-3xl bg-slate-900/50 border border-white/5 backdrop-blur-sm">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 flex items-center justify-center text-indigo-500"><i className="fas fa-brain"></i></div>
+                  <div>
+                    <h4 className="font-bold text-sm">Probing Personas</h4>
+                    <p className="text-[11px] text-slate-500">Personas that fight back and roast you.</p>
+                  </div>
+               </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-12">
+            <button 
+              onClick={() => setActiveScreen('identity')}
+              className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-[2.5rem] text-lg shadow-2xl shadow-blue-900/40 transition-all active:scale-95 flex items-center justify-center gap-3"
+            >
+              BEGIN TRAINING <i className="fas fa-arrow-right text-sm"></i>
+            </button>
+            <p className="text-center text-[10px] font-black text-slate-600 uppercase tracking-widest">Powered by Gemini 2.5 Flash Native Audio</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (activeScreen === 'identity') {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-slate-950 text-white p-8 animate-fadeIn">
+      <div className="flex flex-col items-center justify-center h-full bg-slate-950 text-white p-8 animate-fadeIn relative">
+        <button onClick={() => setActiveScreen('landing')} className="absolute top-12 left-8 text-slate-500 hover:text-white transition-colors">
+          <i className="fas fa-arrow-left"></i>
+        </button>
+
         <div className="text-center space-y-4 mb-12">
            <h1 className="text-4xl font-black italic tracking-tighter">
             <span className="text-blue-500">VOCAL</span>EDGE
@@ -361,9 +436,9 @@ const App: React.FC = () => {
           <div className="w-24 h-24 rounded-[2rem] bg-blue-600 mx-auto flex items-center justify-center text-4xl shadow-2xl shadow-blue-600/40 animate-pulse">
              <i className="fas fa-key"></i>
           </div>
-          <h2 className="text-2xl font-black">CONNECT CORE</h2>
+          <h2 className="text-2xl font-black">INITIALIZE CORE</h2>
           <p className="text-slate-400 font-medium max-w-xs mx-auto text-sm">
-            Attach a Google Cloud Project to power the real-time AI engine.
+            Attach a Google Cloud Project to power the real-time AI engine. This is a one-time connection.
           </p>
         </div>
 
@@ -371,7 +446,7 @@ const App: React.FC = () => {
           onClick={handleConnectKey}
           className="w-full max-w-sm py-5 bg-white text-slate-950 font-black rounded-[2rem] text-lg shadow-xl active:scale-95 transition-all"
         >
-          INITIALIZE ENGINE
+          CONNECT API KEY
         </button>
       </div>
     );
@@ -402,15 +477,15 @@ const App: React.FC = () => {
           <div className="space-y-8 animate-fadeIn">
             <div>
               <h2 className="text-2xl font-black text-white">{t('welcome')}{profile.name ? `, ${profile.name}` : ''}</h2>
-              <p className="text-slate-500 text-sm">Select a combat zone to start training.</p>
+              <p className="text-slate-500 text-sm">Select a training scenario to begin.</p>
             </div>
             <div className="grid gap-4">
               {SCENARIOS.map(s => (
-                <button key={s.id} onClick={() => { setSelectedScenario(s); setSelectedPersona(s.personas[0]); setActiveScreen('customize'); }} className="group relative flex items-center p-5 rounded-[2rem] bg-slate-900 border border-slate-800 active:scale-[0.98] transition-all overflow-hidden">
+                <button key={s.id} onClick={() => { setSelectedScenario(s); setSelectedPersona(s.personas[0]); setActiveScreen('customize'); }} className="group relative flex items-center p-5 rounded-[2rem] bg-slate-900 border border-slate-800 active:scale-[0.98] transition-all overflow-hidden text-left">
                   <div className="w-14 h-14 rounded-2xl bg-slate-800 flex items-center justify-center text-blue-500 text-2xl group-hover:text-white group-hover:bg-blue-600 transition-all">
                     <i className={`fas ${s.icon}`}></i>
                   </div>
-                  <div className={`flex-1 ${isRTL ? 'mr-4 text-right' : 'ml-4 text-left'}`}>
+                  <div className={`flex-1 ${isRTL ? 'mr-4 text-right' : 'ml-4'}`}>
                     <h4 className="font-bold text-lg">{s.title[lang]}</h4>
                     <p className="text-xs text-slate-500 line-clamp-1">{s.description[lang]}</p>
                   </div>
@@ -430,7 +505,7 @@ const App: React.FC = () => {
             <div className="space-y-5">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-600">{t('topicPlaceholder')}</label>
-                <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-white font-bold" placeholder="e.g. Asking for a raise" />
+                <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 text-white font-bold outline-none focus:border-blue-500" placeholder="e.g. Asking for a raise" />
               </div>
 
               <div className="space-y-3">
@@ -508,6 +583,7 @@ const App: React.FC = () => {
                     </div>
                  </div>
                ))}
+               {history.length === 0 && <p className="text-center text-slate-600 py-8 text-sm">{t('noHistory')}</p>}
             </div>
           </div>
         )}
