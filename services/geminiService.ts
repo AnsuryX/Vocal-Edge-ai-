@@ -79,6 +79,10 @@ export class CommunicationCoach {
   private audioContextIn: AudioContext | null = null;
   private audioContextOut: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private mediaRecorder: any = null;
+  private recordedChunks: BlobPart[] = [];
+  private lastConfig: SessionConfig | null = null;
+  private lastLang: Language | null = null;
   private nextStartTime = 0;
   private sources = new Set<AudioBufferSourceNode>();
   private transcriptionHistory: string[] = [];
@@ -177,7 +181,50 @@ export class CommunicationCoach {
     }
   ) {
     this.stopSession();
-    
+
+    const { proxy } = this.getProxyConfig();
+    const clientKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    this.lastConfig = config;
+    this.lastLang = lang;
+
+    // If a server-side proxy is available (worker with GEMINI_API_KEY),
+    // start a proxy-backed (non-realtime) session that records user audio
+    // locally and will send it to the worker on session end. This keeps
+    // credentials server-side while allowing the UI to function.
+    if (proxy && !clientKey) {
+      try {
+        this.turns = [];
+        this.currentUserPCM = [];
+        this.currentAiPCM = [];
+        this.peaks = 0;
+        this.nextStartTime = 0;
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+        if (this.audioContextIn.state === 'suspended') await this.audioContextIn.resume();
+        this.analyser = this.audioContextIn.createAnalyser();
+        this.analyser.fftSize = 256;
+        const source = this.audioContextIn.createMediaStreamSource(stream);
+        source.connect(this.analyser);
+
+        // Start recording to a blob via MediaRecorder; we'll send this to the worker on stop.
+        this.recordedChunks = [];
+        this.mediaRecorder = new (window as any).MediaRecorder(stream);
+        this.mediaRecorder.ondataavailable = (e: any) => { if (e.data && e.data.size) this.recordedChunks.push(e.data); };
+        this.mediaRecorder.start();
+
+        // Expose a simple listening status via transcription update
+        callbacks.onTranscriptionUpdate?.('Listening...');
+
+        // mark session as proxy-backed (truthy value)
+        this.session = { mode: 'proxy' };
+        return;
+      } catch (e) {
+        callbacks.onerror?.(e);
+        throw e;
+      }
+    }
+
     const ai = this.getAIInstance();
     
     this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -337,6 +384,61 @@ export class CommunicationCoach {
   }
 
   stopSession() {
+    // If this was a proxy-backed (non-realtime) session, finalize recording
+    // and send the audio to the worker for real Gemini processing (analysis + TTS).
+    if (this.session && this.session.mode === 'proxy') {
+      try {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+          await new Promise<void>((resolve) => { this.mediaRecorder.onstop = () => resolve(); this.mediaRecorder.stop(); });
+        }
+
+        // Build recorded blob and base64
+        const userBlob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+        const base64 = await new Promise<string>((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res((fr.result as string).split(',')[1]);
+          fr.onerror = rej;
+          fr.readAsDataURL(userBlob);
+        });
+
+        // Call analysis endpoint (uses proxy when available)
+        const analysis = await this.analyzePronunciationAttempt(this.lastConfig?.topic || 'phrase', base64, this.lastLang || 'en');
+
+        // Synthesize TTS from analysis feedback (proxy-aware)
+        let ttsBase64 = '';
+        try {
+          ttsBase64 = await this.generateSpeech((analysis && analysis.feedback) ? analysis.feedback : 'Thanks, I heard you.', this.lastLang || 'en');
+        } catch (e) {
+          console.warn('TTS generation failed in proxy session', e);
+        }
+
+        const userUrl = URL.createObjectURL(userBlob);
+        let modelUrl = '';
+        if (ttsBase64) {
+          const audioBytes = decode(ttsBase64);
+          const wavBlob = new Blob([audioBytes.buffer], { type: 'audio/wav' });
+          modelUrl = URL.createObjectURL(wavBlob);
+        }
+
+        const now = Date.now();
+        const turns: RecordingTurn[] = [];
+        turns.push({ id: `u-${now}`, role: 'user', text: 'User recording', audioUrl: userUrl });
+        if (modelUrl) turns.push({ id: `m-${now}`, role: 'model', text: (analysis && analysis.feedback) ? analysis.feedback : 'Feedback', audioUrl: modelUrl });
+
+        // Reset proxy session state
+        this.recordedChunks = [];
+        this.mediaRecorder = null;
+        this.session = null;
+
+        return { history: analysis ? JSON.stringify(analysis) : '', recordedTurns: turns };
+      } catch (e) {
+        this.session = null;
+        this.recordedChunks = [];
+        this.mediaRecorder = null;
+        throw e;
+      }
+    }
+
     if (this.session) {
       try { this.session.close(); } catch(e) {}
       this.session = null;
