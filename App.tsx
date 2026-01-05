@@ -69,8 +69,19 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const check = async () => {
-      const ok = await (window as any).aistudio.hasSelectedApiKey();
-      if (ok) setActiveScreen('home');
+      try {
+        // If a developer explicitly skipped the client-side prompt, go to home.
+        if (localStorage.getItem('ve_skip_api') === '1') { setActiveScreen('home'); return; }
+
+        const aistudio = (window as any).aistudio;
+        if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
+          const ok = await aistudio.hasSelectedApiKey();
+          if (ok) setActiveScreen('home');
+        }
+      } catch (err) {
+        // Host environment may not expose `aistudio` (e.g. running via worker-only keys).
+        if (localStorage.getItem('ve_skip_api') === '1') setActiveScreen('home');
+      }
     };
     check();
   }, []);
@@ -189,9 +200,14 @@ const App: React.FC = () => {
             </div>
             <h2 className="text-3xl font-black mb-4">Master Every Conversation</h2>
             <p className="text-slate-400 mb-10 max-w-xs">The world's most direct communication coach. Select your project to begin.</p>
-            <button onClick={() => (window as any).aistudio.openSelectKey().then(() => setActiveScreen('home'))} className="w-full max-w-xs py-4 bg-white text-slate-950 font-black rounded-3xl hover:scale-105 active:scale-95 transition-all shadow-xl">
-              CONNECT API KEY
-            </button>
+            <div className="w-full max-w-xs flex flex-col gap-3">
+              <button onClick={() => (window as any).aistudio?.openSelectKey?.().then(() => setActiveScreen('home'))} className="w-full py-4 bg-white text-slate-950 font-black rounded-3xl hover:scale-105 active:scale-95 transition-all shadow-xl">
+                CONNECT API KEY
+              </button>
+              <button onClick={() => { localStorage.setItem('ve_skip_api','1'); setActiveScreen('home'); }} className="w-full py-4 bg-slate-700 text-slate-200 font-bold rounded-3xl hover:scale-105 active:scale-95 transition-all shadow-inner">
+                SKIP (use worker key)
+              </button>
+            </div>
           </div>
         )}
 
@@ -387,10 +403,16 @@ const App: React.FC = () => {
             </div>
 
             <section className="space-y-4 pt-6 border-t border-slate-900">
-               <button onClick={() => (window as any).aistudio.openSelectKey()} className="w-full flex justify-between p-5 bg-slate-900 rounded-[1.5rem] font-bold active:bg-slate-800 transition-all">
+              <div className="space-y-3">
+                <button onClick={() => (window as any).aistudio?.openSelectKey?.()} className="w-full flex justify-between p-5 bg-slate-900 rounded-[1.5rem] font-bold active:bg-slate-800 transition-all">
                   <span className="flex items-center gap-3"><i className="fas fa-key text-blue-500"></i> {t('settingsResetKey')}</span>
                   <i className="fas fa-chevron-right text-slate-700"></i>
-               </button>
+                </button>
+                <button onClick={() => { localStorage.removeItem('ve_skip_api'); alert('Skip cleared'); }} className="w-full flex justify-between p-5 bg-yellow-700/10 border border-yellow-700/20 rounded-[1.5rem] font-bold text-yellow-300 active:bg-yellow-700/20 transition-all">
+                  <span className="flex items-center gap-3"><i className="fas fa-user-shield"></i> Clear skip / use worker key</span>
+                  <i className="fas fa-chevron-right text-slate-700"></i>
+                </button>
+              </div>
                <button onClick={() => { if(confirm('Delete all data?')){ setHistory([]); localStorage.clear(); location.reload(); }}} className="w-full flex justify-between p-5 bg-red-600/10 border border-red-600/20 rounded-[1.5rem] font-bold text-red-500 active:bg-red-600/20 transition-all">
                   <span className="flex items-center gap-3"><i className="fas fa-fire"></i> {t('settingsClearData')}</span>
                </button>

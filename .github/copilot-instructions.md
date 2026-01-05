@@ -7,46 +7,53 @@ Keep this short, specific, and actionable.
 Summary
 - This is a Vite + React (TypeScript) single-page app that provides a real-time conversational practice coach using Google's GenAI Live API. Core responsibilities: UI (React components), audio capture/processing, and live AI session management.
 
+<!-- Guidance for AI coding agents working on this repo. Keep this short, specific, and actionable. -->
+# Copilot Instructions — Vocal Edge AI Coach
+
+Summary
+- Vite + React (TypeScript) SPA that provides a realtime conversational practice coach using Google's GenAI (Live + REST) APIs. Responsibilities: UI components, audio capture/processing, live session lifecycle, and a Cloudflare Worker proxy.
+
 Key files & boundaries
-- UI / entry: [App.tsx](App.tsx) and [index.tsx](index.tsx).
-- Components: [components](components/) — examples: [PronunciationWorkshop.tsx](components/PronunciationWorkshop.tsx), [VoiceVisualizer.tsx](components/VoiceVisualizer.tsx), [LiveMetrics.tsx](components/LiveMetrics.tsx). Treat these as presentation + local state only.
-- AI + audio services: [services/geminiService.ts](services/geminiService.ts) (primary AI integration and session lifecycle) and [services/audioUtils.ts](services/audioUtils.ts) (base64 encode/decode, pcm→wav, audio buffer helpers).
-- Types / constants: [types.ts](types.ts) and [constants.ts](constants.ts) define domain models and config used across components.
-- PWA bits: [sw.js](sw.js) and [manifest.json](manifest.json).
+- Entry / UI: [App.tsx](App.tsx) and [index.tsx](index.tsx).
+- Components: [components/](components/) — `PronunciationWorkshop.tsx`, `VoiceVisualizer.tsx`, `LiveMetrics.tsx` are presentation + local state only.
+- AI + audio services: [services/geminiService.ts](services/geminiService.ts) (real-time session, transcription, TTS, structured analysis) and [services/audioUtils.ts](services/audioUtils.ts) (base64 encode/decode, pcm→wav, blob helpers).
+- Server proxy: [workers/proxy/index.js](workers/proxy/index.js) — the recommended place to store the server-only `GEMINI_API_KEY` secret. The worker exposes `/api/proxy` and injects the server key into proxied requests.
 
 Big-picture dataflow
-- User microphone → `navigator.mediaDevices.getUserMedia` → `AudioContext` (in `CommunicationCoach.startSession`) → audio frames converted to PCM and sent via `ai.live.connect()` realtime session.
-- Server messages arrive in `onmessage` (see `geminiService.ts`) and include: model audio (base64 inlineData), `inputTranscription`, `outputTranscription`, and `turnComplete` events. UI displays real-time transcription and plays model audio via generated `AudioBuffer` objects.
-- After session end, conversation turns are collected (text + generated audio URLs via `URL.createObjectURL`) and passed to analysis (`getDetailedAnalysis`).
+- Microphone → `navigator.mediaDevices.getUserMedia` → input `AudioContext` (16000Hz) → frames → `createBlob` → `ai.live.connect()` realtime session in `CommunicationCoach.startSession`.
+- Server responses arrive in `onmessage` and often contain base64 inline audio (`modelTurn.parts[0].inlineData.data`), `inputTranscription`, `outputTranscription`, and `turnComplete`. Audio is decoded then played via `AudioContext` (24000Hz) and turns are saved as WAV blobs (`pcmToWav`) and `URL.createObjectURL`.
 
-Project-specific conventions & gotchas
-- Environment variable note: this repo now uses `VITE_GEMINI_API_KEY` for client-side builds (see `.env.example`).
-	For production do NOT embed real keys in client bundles — prefer a server-side proxy that uses a server-only `GEMINI_API_KEY` secret.
-- Audio sample rates: input AudioContext uses 16000Hz for capture, output uses 24000Hz for model playback. Be careful when converting or mixing sample rates (`decodeAudioData`, `pcmToWav`). See [services/geminiService.ts](services/geminiService.ts) and [services/audioUtils.ts](services/audioUtils.ts).
-- Realtime message shape: `message.serverContent` is the primary structure. Expect nested fields like `modelTurn.parts[0].inlineData.data` (base64 audio). Use defensive checks before accessing nested properties — code already guards many paths.
-- Audio wire format: `createBlob` returns `{ data, mimeType: 'audio/pcm;rate=16000' }` — server expects base64 PCM for realtime input. When producing downloadable audio the code uses `pcmToWav`.
+Runtime & environment notes (critical)
+- Client-side env: `VITE_GEMINI_API_KEY` is read by `services/geminiService.ts` (via `import.meta.env`). If set, the key will be embedded into the client bundle — only for prototypes.
+- Server-side / Worker: the Worker expects a server-only `GEMINI_API_KEY` (see `workers/proxy/index.js`) and will inject `x-goog-api-key` when present. Use `VITE_PROXY_URL` to point client calls to the worker; the app prefers the proxy when available.
+- Recommended pattern: deploy the Worker with `GEMINI_API_KEY` secret and set `VITE_PROXY_URL` in the client. This avoids embedding a key in the bundle.
 
-Build / run / debug
-- Local dev: `npm install` then `npm run dev` (Vite). Production build: `npm run build`. Preview built output: `npm run preview`.
-- Env: add a `.env.local` with the Gemini key. Align the variable name with `services/geminiService.ts` (currently `API_KEY`).
-- Node is only needed for Vite; most runtime issues surface in the browser console. For debugging audio flows, open DevTools → Console and Network; inspect live `ai.live` websocket traffic and printed logs in `geminiService.ts`.
+App startup & key-selection flow
+- The app calls `window.aistudio.hasSelectedApiKey()` and `window.aistudio.openSelectKey()` when present (these are provided by some hosting/dev environments). Code uses optional chaining to avoid crashes if `aistudio` is absent.
+- There's a local override flag: `localStorage['ve_skip_api']='1'` — using the UI "SKIP (use worker key)" button will set this and let the frontend proceed to the app even when no client key is present (worker-only key). The profile screen exposes a "Clear skip" control to remove the flag.
 
-AI integration specifics (important)
-- Uses `@google/genai` client (models referenced in `geminiService.ts`): e.g. `gemini-2.5-flash-native-audio-preview-09-2025`, `gemini-3-flash-preview`, and TTS variant. When changing model names preserve modalities and responseSchema usage.
-- `ai.live.connect({... callbacks })` drives realtime behavior — replicate existing callback shape when adding features. Important callback keys: `onopen`, `onmessage`, `onclose`, `onerror`.
-- When adding generation calls, prefer `responseMimeType` and `responseSchema` to force JSON or structured responses (see `generateSuggestedTopics` and `getDetailedAnalysis`).
+Audio & model details
+- Input capture sample rate: 16000Hz. Output playback: 24000Hz. See `services/geminiService.ts` where two AudioContexts are created.
+- Realtime model(s) used in repo examples: `gemini-2.5-flash-native-audio-preview-09-2025` (live audio), `gemini-3-flash-preview` (analysis), and TTS variants. When changing models keep `responseModalities` and `responseSchema` consistent.
+
+Proxy usage patterns
+- `services/geminiService.ts` falls back to the worker proxy when `VITE_PROXY_URL` is set. Proxy contract: POST `/api/proxy` with { target, method, headers, body } — the worker forwards to Gemini and injects server `GEMINI_API_KEY`.
+- Worker enforces a hardcoded target base and will return 500 if the server-side secret is missing; see `workers/proxy/index.js` lines that set `x-goog-api-key`.
+
+Quick developer examples
+- Generate suggested topics via proxy (recommended): the service calls `callProxy('/v1/models/<model>:generate', body)` — check `generateSuggestedTopics` in `services/geminiService.ts`.
+- Decode model audio: `const bytes = decode(base64); const buffer = await decodeAudioData(bytes, audioContextOut, 24000, 1)`.
+
+Testing / debugging
+- Local dev: `npm install` then `npm run dev` (Vite). Use browser DevTools (Console + Network) to inspect `/api/proxy` calls and `ai.live` websocket traffic.
+- To test worker-key-only flow locally: deploy or run a compatible worker that responds at `VITE_PROXY_URL`. Alternatively, use the UI "SKIP (use worker key)" button to bypass the client key prompt during development.
 
 When editing
-- Keep audio helper semantics intact: `decode`/`encode` use base64 atob/btoa pair; `pcmToWav` produces a downloadable WAV blob the UI expects.
-- Preserve the `turnComplete` aggregation pattern: recording user/model text+audio into `turns` then resetting buffers. Modifying this flow requires updating components that read `recordedTurns`.
-- If you change any model contract or response schema, update the parsing calls that do `JSON.parse(response.text)` and add defensive try/catch around parse points.
-
-Quick examples (copy-paste safe)
-- Send realtime PCM blob: use `createBlob(float32Array)` from `services/audioUtils.ts` and send via `session.sendRealtimeInput({ media: blob })` (see `startSession`).
-- Decode incoming base64 audio: `const bytes = decode(base64)` then `decodeAudioData(bytes, audioContextOut, 24000, 1)` to get an `AudioBuffer` (see `onmessage`).
+- Avoid changing the audio helper semantics (`decode`, `encode`, `pcmToWav`) without updating consumers in `CommunicationCoach` and components that expect `audioUrl` blobs.
+- Maintain the `turnComplete` aggregation pattern: user/model text + audio are pushed into `turns` and then reset. Changing this requires updating any code that reads `recordedTurns`.
 
 Questions to ask the repo owner
-- Which env var should we standardize for Gemini credentials: `GEMINI_API_KEY` or `API_KEY`?
-- Any stable model names to pin for production vs. experimentation?
+- Should we standardize on `GEMINI_API_KEY` (server) + `VITE_PROXY_URL` for all environments, or allow `VITE_GEMINI_API_KEY` in prototyping builds?
+- Which model names should be pinned for production vs. experiments?
 
-If anything here is unclear, point to the file(s) you want expanded and I will update this guidance.
+If you want, I can expand any of these sections with file-level jump links or add a short checklist for deploying the Worker with Cloudflare secrets.
