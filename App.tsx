@@ -15,7 +15,7 @@ const App: React.FC = () => {
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [showPronunciationWorkshop, setShowPronunciationWorkshop] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
+
   // Customization State
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [topic, setTopic] = useState('');
@@ -37,11 +37,11 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<SessionResult[]>([]);
   const [lastTranscription, setLastTranscription] = useState('');
   const [playingTurnId, setPlayingTurnId] = useState<string | null>(null);
-  
+
   // Real-time
   const [liveEnergy, setLiveEnergy] = useState(0);
   const [livePace, setLivePace] = useState(0);
-  
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const coachRef = useRef<CommunicationCoach>(new CommunicationCoach());
   const startTimeRef = useRef<number | null>(null);
@@ -64,6 +64,28 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('ve_history', JSON.stringify(history)), [history]);
   useEffect(() => localStorage.setItem('ve_profile', JSON.stringify(profile)), [profile]);
 
+  useEffect(() => {
+    const check = async () => {
+      // Check if API key is set via environment variable (bypass auth screen)
+      const envApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (envApiKey && envApiKey !== 'your_gemini_api_key_here') {
+        setActiveScreen('home');
+        return;
+      }
+
+      // Otherwise check if user has selected API key via the UI
+      const ok = await (window as any).aistudio.hasSelectedApiKey();
+      if (ok) setActiveScreen('home');
+    };
+    check();
+  }, []);
+
+  // Set default topic when scenario changes
+  useEffect(() => {
+    if (selectedScenario) {
+      setTopic(selectedScenario.description[lang]);
+    }
+  }, [selectedScenario, lang]);
   const t = (key: keyof typeof TRANSLATIONS) => TRANSLATIONS[key][lang];
 
   const formatDuration = (seconds: number) => {
@@ -101,16 +123,16 @@ const App: React.FC = () => {
   const handleEndSession = async () => {
     const sessionEndTime = Date.now();
     const duration = startTimeRef.current ? Math.floor((sessionEndTime - startTimeRef.current) / 1000) : 0;
-    
+
     setIsSessionActive(false);
     setIsAnalyzing(true);
     const { history: text, recordedTurns } = coachRef.current.stopSession();
     try {
       if (!text.trim()) { setActiveScreen('home'); return; }
       const res = await coachRef.current.getDetailedAnalysis(text, { scenario: selectedScenario!, persona: selectedPersona!, topic, outcome, focusSkills: selectedSkills }, lang);
-      
-      setAnalysisResult({ ...res, duration, recordingTurns: recordedTurns }); 
-      
+
+      setAnalysisResult({ ...res, duration, recordingTurns: recordedTurns });
+
       const newEntry: SessionResult = {
         id: Date.now().toString(),
         date: new Date().toLocaleDateString(),
@@ -151,7 +173,7 @@ const App: React.FC = () => {
   return (
     <div className={`flex flex-col h-full bg-slate-950 text-slate-100 ${isRTL ? 'font-arabic' : 'font-english'}`}>
       <audio ref={audioRef} className="hidden" />
-      
+      {/* Header */}
       <header className="px-6 py-4 flex justify-between items-center border-b border-slate-900 bg-slate-950/50 backdrop-blur-lg sticky top-0 z-50">
         <h1 className="text-xl font-black italic tracking-tighter flex items-center gap-2">
           <span className="text-blue-500">VOCAL</span>EDGE
@@ -189,11 +211,30 @@ const App: React.FC = () => {
               <i className={`fas fa-chevron-${isRTL ? 'right' : 'left'}`}></i> Back
             </button>
             <h2 className="text-3xl font-black">{t('customize')}</h2>
-            
+
             <div className="space-y-5">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">{t('topicPlaceholder')}</label>
                 <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 focus:ring-2 ring-blue-500 outline-none text-white font-bold placeholder:text-slate-700" placeholder="e.g. Salary Negotiation" />
+                {selectedScenario.suggestedTopics?.[lang] && (
+                  <div className="mt-4 space-y-3">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{t('suggestedTopics')}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedScenario.suggestedTopics[lang].map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setTopic(suggestion)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${topic === suggestion
+                            ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }`}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -234,19 +275,19 @@ const App: React.FC = () => {
             </div>
 
             <div className="w-full min-h-[160px] bg-slate-900/50 rounded-[2.5rem] border border-slate-800/50 p-6 flex flex-col justify-center relative overflow-hidden">
-               {isSessionActive ? (
-                 <>
-                   <VoiceVisualizer color="bg-blue-500" />
-                   <p className="mt-4 text-center text-sm italic text-slate-400 animate-pulse line-clamp-2 px-4">
-                     {lastTranscription || "Listening to your tone..."}
-                   </p>
-                   <div className="mt-4 border-t border-slate-800 pt-4">
-                     <LiveMetrics energy={liveEnergy} pace={livePace} lang={lang} />
-                   </div>
-                 </>
-               ) : (
-                 <p className="text-center text-slate-600 font-bold uppercase tracking-widest text-xs">Ready for input</p>
-               )}
+              {isSessionActive ? (
+                <>
+                  <VoiceVisualizer color="bg-blue-500" />
+                  <p className="mt-4 text-center text-sm italic text-slate-400 animate-pulse line-clamp-2 px-4">
+                    {lastTranscription || "Listening to your tone..."}
+                  </p>
+                  <div className="mt-4 border-t border-slate-800 pt-4">
+                    <LiveMetrics energy={liveEnergy} pace={livePace} lang={lang} />
+                  </div>
+                </>
+              ) : (
+                <p className="text-center text-slate-600 font-bold uppercase tracking-widest text-xs">Ready for input</p>
+              )}
             </div>
 
             <button onClick={isSessionActive ? handleEndSession : handleStartSession} disabled={isAnalyzing} className={`w-full max-w-xs py-5 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 transition-all ${isSessionActive ? 'bg-red-600 shadow-red-900/40' : 'bg-blue-600 shadow-blue-900/40'}`}>
@@ -258,6 +299,7 @@ const App: React.FC = () => {
         {activeScreen === 'stats' && (
           <div className="space-y-8 animate-fadeIn">
             <h2 className="text-3xl font-black">{t('stats')}</h2>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="p-6 rounded-[2rem] bg-slate-900 border border-slate-800">
                 <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Engagements</p>
@@ -265,7 +307,7 @@ const App: React.FC = () => {
               </div>
               <div className="p-6 rounded-[2rem] bg-slate-900 border border-slate-800">
                 <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Avg Confidence</p>
-                <h4 className="text-3xl font-black text-blue-500">{history.length > 0 ? Math.round(history.reduce((a,c)=>a+c.confidenceScore,0)/history.length) : 0}%</h4>
+                <h4 className="text-3xl font-black text-blue-500">{history.length > 0 ? Math.round(history.reduce((a, c) => a + c.confidenceScore, 0) / history.length) : 0}%</h4>
               </div>
             </div>
           </div>
@@ -277,9 +319,34 @@ const App: React.FC = () => {
             <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 p-6 space-y-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userName')}</label>
-                <input value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+                <input value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userBio')}</label>
+                <input value={profile.bio} onChange={e => setProfile({ ...profile, bio: e.target.value })} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('userGoal')}</label>
+                <input value={profile.goal} onChange={e => setProfile({ ...profile, goal: e.target.value })} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none focus:border-blue-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{t('toneVibe')}</label>
+                <select value={profile.preferredTone} onChange={e => setProfile({ ...profile, preferredTone: e.target.value as any })} className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-3 outline-none appearance-none">
+                  <option value="supportive">Warm Support</option>
+                  <option value="brutal">Brutal Honesty</option>
+                </select>
               </div>
             </div>
+
+            <section className="space-y-4 pt-6 border-t border-slate-900">
+              <button onClick={() => (window as any).aistudio.openSelectKey()} className="w-full flex justify-between p-5 bg-slate-900 rounded-[1.5rem] font-bold active:bg-slate-800 transition-all">
+                <span className="flex items-center gap-3"><i className="fas fa-key text-blue-500"></i> {t('settingsResetKey')}</span>
+                <i className="fas fa-chevron-right text-slate-700"></i>
+              </button>
+              <button onClick={() => { if (confirm('Delete all data?')) { setHistory([]); localStorage.clear(); location.reload(); } }} className="w-full flex justify-between p-5 bg-red-600/10 border border-red-600/20 rounded-[1.5rem] font-bold text-red-500 active:bg-red-600/20 transition-all">
+                <span className="flex items-center gap-3"><i className="fas fa-fire"></i> {t('settingsClearData')}</span>
+              </button>
+            </section>
           </div>
         )}
 
@@ -300,6 +367,61 @@ const App: React.FC = () => {
             <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-slate-800 relative">
               <p className="text-slate-300 italic leading-relaxed pt-2">"{analysisResult.feedback}"</p>
             </div>
+            {/* Pronunciation Trouble Words */}
+            {analysisResult.troubleWords && analysisResult.troubleWords.length > 0 && (
+              <section className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Trouble Words</h3>
+                  <button
+                    onClick={() => setShowPronunciationWorkshop(true)}
+                    className="text-[10px] font-black text-blue-500 uppercase tracking-widest underline"
+                  >
+                    {t('pronunciationTitle')}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {analysisResult.troubleWords.map((item: any, idx: number) => (
+                    <div key={idx} className="px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold text-slate-300">
+                      {item.word}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Conversation Timeline Review */}
+            {analysisResult.recordingTurns && analysisResult.recordingTurns.length > 0 && (
+              <section className="space-y-4">
+                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('recordingTurns')}</h3>
+                <div className="space-y-3">
+                  {analysisResult.recordingTurns.map((turn: RecordingTurn) => (
+                    <button
+                      key={turn.id}
+                      onClick={() => playTurn(turn)}
+                      className={`w-full text-left p-4 rounded-2xl border transition-all flex items-start gap-3 group relative ${turn.role === 'user'
+                        ? 'bg-slate-900/50 border-slate-800'
+                        : 'bg-blue-600/5 border-blue-500/20'
+                        } ${playingTurnId === turn.id ? 'ring-2 ring-blue-500' : ''}`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${turn.role === 'user' ? 'bg-slate-800 text-slate-400' : 'bg-blue-600 text-white'
+                        }`}>
+                        <i className={`fas ${turn.role === 'user' ? 'fa-user' : 'fa-robot'} text-xs`}></i>
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-sm leading-relaxed ${playingTurnId === turn.id ? 'text-blue-400 font-medium' : 'text-slate-300'}`}>
+                          {turn.text}
+                        </p>
+                      </div>
+                      {turn.audioUrl && (
+                        <div className={`flex-shrink-0 transition-opacity ${playingTurnId === turn.id ? 'opacity-100' : 'opacity-30 group-hover:opacity-100'}`}>
+                          <i className={`fas ${playingTurnId === turn.id ? 'fa-volume-up text-blue-500' : 'fa-play text-slate-500'} text-xs`}></i>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             <button onClick={() => setActiveScreen('home')} className="w-full py-5 bg-white text-slate-950 font-black rounded-3xl shadow-xl">
               RETURN TO BASE
             </button>
@@ -307,6 +429,17 @@ const App: React.FC = () => {
         )}
       </main>
 
+      {/* Overlay: Pronunciation Workshop */}
+      {showPronunciationWorkshop && analysisResult?.troubleWords && (
+        <PronunciationWorkshop
+          items={analysisResult.troubleWords}
+          lang={lang}
+          coach={coachRef.current}
+          onClose={() => setShowPronunciationWorkshop(false)}
+        />
+      )}
+
+      {/* Bottom Navigation Bar */}
       {['home', 'stats', 'profile'].includes(activeScreen) && (
         <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/80 backdrop-blur-2xl border-t border-slate-900 px-8 py-4 flex justify-between items-center z-50">
           {navItems.map(item => (
