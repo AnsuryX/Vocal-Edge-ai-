@@ -79,10 +79,6 @@ export class CommunicationCoach {
   private audioContextIn: AudioContext | null = null;
   private audioContextOut: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private mediaRecorder: any = null;
-  private recordedChunks: BlobPart[] = [];
-  private lastConfig: SessionConfig | null = null;
-  private lastLang: Language | null = null;
   private nextStartTime = 0;
   private sources = new Set<AudioBufferSourceNode>();
   private transcriptionHistory: string[] = [];
@@ -99,59 +95,17 @@ export class CommunicationCoach {
   constructor() {}
 
   private getAIInstance() {
-    // NOTE: Vite only exposes env vars prefixed with `VITE_` to client code.
-    // This will embed the key into the client bundle if set — see README security notes.
-    const key = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    return new GoogleGenAI({ apiKey: key });
-  }
-
-  private getProxyConfig() {
-    const proxy = (import.meta as any).env?.VITE_PROXY_URL;
-    const restBase = (import.meta as any).env?.VITE_GENAI_REST_BASE || '';
-    return { proxy, restBase };
-  }
-
-  private async callProxy(targetPath: string, body: any) {
-    const { proxy, restBase } = this.getProxyConfig();
-    if (!proxy) throw new Error('No proxy configured (VITE_PROXY_URL)');
-    const target = restBase ? `${restBase.replace(/\/$/, '')}${targetPath}` : targetPath;
-    const resp = await fetch(`${proxy.replace(/\/$/, '')}/api/proxy`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-    });
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      throw new Error(`Proxy request failed: ${resp.status} ${txt}`);
-    }
-    return resp.json();
+    return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
   async generateSuggestedTopics(lang: Language): Promise<string[]> {
+    const ai = this.getAIInstance();
     const prompt = `Generate 4-5 engaging, relevant conversation topics for a practice session aimed at building conversational confidence. 
     Topics should be specific (e.g., 'A childhood memory that shaped you' instead of 'Childhood').
     Progress from light to deep.
     Return them as a JSON array of strings. Language: ${lang === 'en' ? 'English' : 'Arabic'}`;
 
-    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
-    if (proxyUrl) {
-      try {
-        // Use the worker proxy to call the GenAI REST endpoint. The worker will inject the server-side key.
-        const model = 'gemini-3-flash-preview';
-        const body = { model, contents: prompt, config: { responseMimeType: 'application/json' } };
-        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
-        // Try to extract text responses conservatively
-        if (result?.text) return JSON.parse(result.text);
-        if (result?.candidates?.[0]?.content?.text) return JSON.parse(result.candidates[0].content.text);
-        return JSON.parse(JSON.stringify(result));
-      } catch (e) {
-        console.error('Proxy generateSuggestedTopics failed', e);
-      }
-    }
-
-    // Fallback: use client-side GenAI SDK (requires VITE_GEMINI_API_KEY)
     try {
-      const ai = this.getAIInstance();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -181,50 +135,7 @@ export class CommunicationCoach {
     }
   ) {
     this.stopSession();
-
-    const { proxy } = this.getProxyConfig();
-    const clientKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    this.lastConfig = config;
-    this.lastLang = lang;
-
-    // If a server-side proxy is available (worker with GEMINI_API_KEY),
-    // start a proxy-backed (non-realtime) session that records user audio
-    // locally and will send it to the worker on session end. This keeps
-    // credentials server-side while allowing the UI to function.
-    if (proxy && !clientKey) {
-      try {
-        this.turns = [];
-        this.currentUserPCM = [];
-        this.currentAiPCM = [];
-        this.peaks = 0;
-        this.nextStartTime = 0;
-
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-        if (this.audioContextIn.state === 'suspended') await this.audioContextIn.resume();
-        this.analyser = this.audioContextIn.createAnalyser();
-        this.analyser.fftSize = 256;
-        const source = this.audioContextIn.createMediaStreamSource(stream);
-        source.connect(this.analyser);
-
-        // Start recording to a blob via MediaRecorder; we'll send this to the worker on stop.
-        this.recordedChunks = [];
-        this.mediaRecorder = new (window as any).MediaRecorder(stream);
-        this.mediaRecorder.ondataavailable = (e: any) => { if (e.data && e.data.size) this.recordedChunks.push(e.data); };
-        this.mediaRecorder.start();
-
-        // Expose a simple listening status via transcription update
-        callbacks.onTranscriptionUpdate?.('Listening...');
-
-        // mark session as proxy-backed (truthy value)
-        this.session = { mode: 'proxy' };
-        return;
-      } catch (e) {
-        callbacks.onerror?.(e);
-        throw e;
-      }
-    }
-
+    
     const ai = this.getAIInstance();
     
     this.audioContextIn = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -384,61 +295,6 @@ export class CommunicationCoach {
   }
 
   stopSession() {
-    // If this was a proxy-backed (non-realtime) session, finalize recording
-    // and send the audio to the worker for real Gemini processing (analysis + TTS).
-    if (this.session && this.session.mode === 'proxy') {
-      try {
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-          await new Promise<void>((resolve) => { this.mediaRecorder.onstop = () => resolve(); this.mediaRecorder.stop(); });
-        }
-
-        // Build recorded blob and base64
-        const userBlob = new Blob(this.recordedChunks, { type: 'audio/webm' });
-        const base64 = await new Promise<string>((res, rej) => {
-          const fr = new FileReader();
-          fr.onload = () => res((fr.result as string).split(',')[1]);
-          fr.onerror = rej;
-          fr.readAsDataURL(userBlob);
-        });
-
-        // Call analysis endpoint (uses proxy when available)
-        const analysis = await this.analyzePronunciationAttempt(this.lastConfig?.topic || 'phrase', base64, this.lastLang || 'en');
-
-        // Synthesize TTS from analysis feedback (proxy-aware)
-        let ttsBase64 = '';
-        try {
-          ttsBase64 = await this.generateSpeech((analysis && analysis.feedback) ? analysis.feedback : 'Thanks, I heard you.', this.lastLang || 'en');
-        } catch (e) {
-          console.warn('TTS generation failed in proxy session', e);
-        }
-
-        const userUrl = URL.createObjectURL(userBlob);
-        let modelUrl = '';
-        if (ttsBase64) {
-          const audioBytes = decode(ttsBase64);
-          const wavBlob = new Blob([audioBytes.buffer], { type: 'audio/wav' });
-          modelUrl = URL.createObjectURL(wavBlob);
-        }
-
-        const now = Date.now();
-        const turns: RecordingTurn[] = [];
-        turns.push({ id: `u-${now}`, role: 'user', text: 'User recording', audioUrl: userUrl });
-        if (modelUrl) turns.push({ id: `m-${now}`, role: 'model', text: (analysis && analysis.feedback) ? analysis.feedback : 'Feedback', audioUrl: modelUrl });
-
-        // Reset proxy session state
-        this.recordedChunks = [];
-        this.mediaRecorder = null;
-        this.session = null;
-
-        return { history: analysis ? JSON.stringify(analysis) : '', recordedTurns: turns };
-      } catch (e) {
-        this.session = null;
-        this.recordedChunks = [];
-        this.mediaRecorder = null;
-        throw e;
-      }
-    }
-
     if (this.session) {
       try { this.session.close(); } catch(e) {}
       this.session = null;
@@ -475,7 +331,6 @@ export class CommunicationCoach {
   }
 
   async getDetailedAnalysis(history: string, config: SessionConfig, lang: Language) {
-    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
     const ai = this.getAIInstance();
     const isWarm = config.persona.isWarm;
     const toneInstruction = isWarm 
@@ -492,32 +347,10 @@ export class CommunicationCoach {
     - feedback (detailed critique or encouragement)
     - skillScores (object focus skills: 0-100)
     - keyFailures (array - or key achievements/growth points if warm)
-    - troubleWords (array of pronunciation trouble spots. 
-        For each word, provide:
-        - word: the word itself
-        - phonetic: IPA or simple phonetic guide
-        - tips: Record<Language, string> for general advice
-        - mouthPosition: Record<Language, string> describing lip/jaw shape (e.g., "Round lips into an 'O' shape")
-        - tonguePlacement: Record<Language, string> describing where the tongue should be (e.g., "Press tip of tongue against back of top teeth")
-        - commonPitfalls: Record<Language, string> describing what usually goes wrong (e.g., "Users often substitute this with a 'D' sound")
-    )
+    - troubleWords (array: {word, phonetic, tips})
 
     History:
     ${history}`;
-
-    if (proxyUrl) {
-      try {
-        const model = 'gemini-3-flash-preview';
-        const body = { model, contents: prompt, config: { responseMimeType: 'application/json' } };
-        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
-        // attempt to parse structured result
-        if (result?.text) return JSON.parse(result.text);
-        if (result?.candidates?.[0]?.content?.text) return JSON.parse(result.candidates[0].content.text);
-        return result;
-      } catch (e) {
-        console.error('Proxy getDetailedAnalysis failed', e);
-      }
-    }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -539,10 +372,7 @@ export class CommunicationCoach {
                 properties: {
                   word: { type: Type.STRING },
                   phonetic: { type: Type.STRING },
-                  tips: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
-                  mouthPosition: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
-                  tonguePlacement: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
-                  commonPitfalls: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } }
+                  tips: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } }
                 }
               }
             }
@@ -561,20 +391,7 @@ export class CommunicationCoach {
       ar_msa: 'Puck',
       ar_khaleeji: 'Zephyr'
     };
-    const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
-    if (proxyUrl) {
-      try {
-        const model = 'gemini-2.5-flash-preview-tts';
-        const body = { model, contents: [{ parts: [{ text: `Say this clearly: ${text}` }] }], config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceMap[lang] || 'Kore' } } } } };
-        const result = await this.callProxy(`/v1/models/${model}:generate`, body);
-        const base64Audio = result?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || result?.data;
-        if (!base64Audio) throw new Error('Failed to generate speech via proxy');
-        return base64Audio;
-      } catch (e) {
-        console.error('Proxy generateSpeech failed', e);
-      }
-    }
-
+    
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `Say this clearly: ${text}` }] }],
@@ -587,7 +404,7 @@ export class CommunicationCoach {
         },
       },
     });
-
+    
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) throw new Error("Failed to generate speech");
     return base64Audio;
@@ -596,69 +413,17 @@ export class CommunicationCoach {
   async analyzePronunciationAttempt(target: string, attemptAudioBase64: string, lang: Language) {
     const ai = this.getAIInstance();
     const prompt = `Analyze this audio of a user attempting to pronounce the word/phrase: "${target}".
-    Evaluate the pronunciation accuracy, tone, and clarity.
     Return JSON: { score: number, feedback: string, needsCorrection: boolean }`;
 
-      const proxyUrl = (import.meta as any).env?.VITE_PROXY_URL;
-      if (proxyUrl) {
-        try {
-          const model = 'gemini-3-flash-preview';
-          const body = { model, contents: [ { text: prompt }, { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } } ], config: { responseMimeType: 'application/json' } };
-          const result = await this.callProxy(`/v1/models/${model}:generate`, body);
-          if (result?.text) return JSON.parse(result.text);
-          return result;
-        } catch (e) {
-          console.error('Proxy analyzePronunciationAttempt failed', e);
-        }
-      }
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [
-          { text: prompt },
-          { inlineData: { mimeType: 'audio/webm', data: attemptAudioBase64 } }
-        ],
-        config: { responseMimeType: 'application/json' }
-      });
-
-      return JSON.parse(response.text);
-  }
-}
-
-// Simple helper that posts a Gemini-style request to the Worker proxy using a relative path.
-export async function generateAIVideoScript(prompt: string): Promise<string> {
-  try {
-    const response = await fetch('/api/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // Send the prompt in the format Gemini expects
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-      }),
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [
+        { text: prompt },
+        { inlineData: { mimeType: 'audio/pcm;rate=16000', data: attemptAudioBase64 } }
+      ],
+      config: { responseMimeType: 'application/json' }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Worker Error: ${errorText}`);
-    }
-
-    const data = await response.json();
-
-    // Extract the text content from Gemini's response shape
-    return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ??
-      JSON.stringify(data)
-    );
-  } catch (error) {
-    console.error('Gemini Service Error:', error);
-    throw error;
+    return JSON.parse(response.text);
   }
 }

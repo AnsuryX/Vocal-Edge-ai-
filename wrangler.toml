@@ -1,7 +1,0 @@
-name = "vocal-edge-ai-couchv1"
-main = "workers/proxy/index.js"
-compatibility_date = "2026-01-04"
-
-[assets]
-directory = "./dist" # This is where 'npm run build' puts your React files
-binding = "ASSETS"

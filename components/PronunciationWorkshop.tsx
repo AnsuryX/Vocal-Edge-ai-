@@ -54,6 +54,7 @@ const PronunciationWorkshop: React.FC<Props> = ({ items, lang, coach, onClose })
       recorder.onstop = async () => {
         setIsProcessing(true);
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        // Conversion logic for Gemini (Simplified for demo, usually needs proper PCM conversion)
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         reader.onloadend = async () => {
@@ -80,29 +81,14 @@ const PronunciationWorkshop: React.FC<Props> = ({ items, lang, coach, onClose })
     }
   };
 
-  const renderTipSection = (title: string, content: string | undefined, icon: string, colorClass: string) => {
-    if (!content) return null;
-    return (
-      <div className="bg-slate-900/50 p-5 rounded-3xl border border-slate-800/50 flex gap-4">
-        <div className={`w-10 h-10 rounded-2xl ${colorClass} flex-shrink-0 flex items-center justify-center text-sm`}>
-          <i className={`fas ${icon}`}></i>
-        </div>
-        <div>
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">{title}</h4>
-          <p className="text-sm text-slate-300 leading-relaxed">{content}</p>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/98 backdrop-blur-2xl animate-fadeIn flex flex-col p-6 overflow-y-auto">
-      <div className="flex justify-between items-center mb-8 sticky top-0 z-10 py-2 bg-slate-950/50 backdrop-blur-md">
-        <h2 className="text-2xl font-black text-white flex items-center gap-3">
+    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl animate-fadeIn flex flex-col p-6 overflow-y-auto">
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
           <i className="fas fa-microphone-alt text-blue-500"></i>
           {t('pronunciationTitle')}
         </h2>
-        <button onClick={onClose} className="w-10 h-10 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 hover:text-white transition-colors">
+        <button onClick={onClose} className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 hover:text-white transition-colors">
           <i className="fas fa-times"></i>
         </button>
       </div>
@@ -113,81 +99,81 @@ const PronunciationWorkshop: React.FC<Props> = ({ items, lang, coach, onClose })
             <button
               key={idx}
               onClick={() => setSelectedWord(item)}
-              className="group flex items-center p-6 rounded-3xl bg-slate-900 border border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/50 transition-all text-left"
+              className="group flex items-center p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-blue-500 transition-all text-left"
             >
               <div className="flex-1">
-                <h3 className="text-xl font-black text-white mb-1">{item.word}</h3>
-                <p className="text-xs text-blue-400 font-mono tracking-widest uppercase">{item.phonetic || 'Phonetic guide'}</p>
-                <p className="text-xs text-slate-500 mt-2 line-clamp-1">{item.tips[lang]}</p>
+                <h3 className="text-xl font-bold text-white mb-1">{item.word}</h3>
+                <p className="text-xs text-blue-400 font-mono mb-2">{item.phonetic}</p>
+                <p className="text-sm text-slate-400 italic">"{item.tips[lang]}"</p>
               </div>
-              <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-600 group-hover:text-blue-400 group-hover:bg-blue-400/10 transition-all">
-                <i className="fas fa-chevron-right"></i>
+              <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-600 group-hover:text-blue-500 group-hover:bg-blue-500/10 transition-all">
+                <i className="fas fa-play"></i>
               </div>
             </button>
           ))}
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center space-y-8 animate-scaleIn pb-20">
+        <div className="flex-1 flex flex-col items-center justify-center space-y-10 animate-scaleIn">
           <button 
             onClick={() => { setSelectedWord(null); setAttemptResult(null); }}
-            className="self-start text-slate-500 hover:text-white flex items-center gap-2 font-black text-[10px] uppercase tracking-[0.2em]"
+            className="self-start text-slate-500 hover:text-white mb-4 text-sm flex items-center gap-2"
           >
             <i className={`fas fa-arrow-${lang.startsWith('ar') ? 'right' : 'left'}`}></i>
-            {lang === 'en' ? 'Back to list' : 'رجوع'}
+            Back to list
           </button>
 
-          <div className="text-center space-y-2">
-            <h1 className="text-5xl font-black text-white tracking-tighter">{selectedWord.word}</h1>
-            <p className="text-blue-500 font-mono text-sm tracking-[0.3em] uppercase">{selectedWord.phonetic}</p>
+          <div className="text-center space-y-4">
+            <h1 className="text-4xl font-black text-white tracking-tight">{selectedWord.word}</h1>
+            <p className="text-blue-400 font-mono">{selectedWord.phonetic}</p>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-6">
             <button
               onClick={() => playMaster(selectedWord.word)}
               disabled={isPlaying}
-              className={`w-24 h-24 rounded-[2rem] flex flex-col items-center justify-center transition-all ${
-                isPlaying ? 'bg-blue-600 animate-pulse text-white' : 'bg-slate-900 border-2 border-slate-800 text-blue-500 hover:border-blue-500/30'
+              className={`w-20 h-20 rounded-full flex flex-col items-center justify-center transition-all ${
+                isPlaying ? 'bg-blue-600 animate-pulse' : 'bg-slate-900 border border-slate-800 hover:border-blue-500'
               }`}
             >
-              <i className="fas fa-volume-up text-2xl mb-2"></i>
-              <span className="text-[9px] font-black uppercase tracking-widest">{t('listen')}</span>
+              <i className="fas fa-volume-up text-xl mb-1"></i>
+              <span className="text-[10px] font-bold uppercase">{t('listen')}</span>
             </button>
 
             <button
               onClick={isRecording ? stopRecording : startRecording}
-              className={`w-24 h-24 rounded-[2rem] flex flex-col items-center justify-center transition-all shadow-2xl ${
+              className={`w-20 h-20 rounded-full flex flex-col items-center justify-center transition-all shadow-xl ${
                 isRecording 
-                  ? 'bg-red-600 scale-105 shadow-red-600/20 text-white' 
-                  : 'bg-white text-slate-950 hover:scale-105 active:scale-95'
+                  ? 'bg-red-500 scale-110 shadow-red-500/20' 
+                  : 'bg-slate-100 text-slate-950 hover:bg-white'
               }`}
             >
-              <i className={`fas ${isRecording ? 'fa-square' : 'fa-microphone'} text-2xl mb-2`}></i>
-              <span className="text-[9px] font-black uppercase tracking-widest">{isRecording ? t('stop') : t('record')}</span>
+              <i className={`fas ${isRecording ? 'fa-square' : 'fa-microphone'} text-xl mb-1`}></i>
+              <span className="text-[10px] font-bold uppercase">{isRecording ? t('stop') : t('record')}</span>
             </button>
           </div>
 
           {isProcessing && (
-             <div className="flex items-center gap-3 text-blue-500 animate-pulse py-4">
+             <div className="flex items-center gap-3 text-blue-500 animate-pulse">
                 <i className="fas fa-circle-notch fa-spin"></i>
-                <span className="text-xs font-black tracking-widest uppercase">Analyzing...</span>
+                <span className="text-sm font-bold tracking-widest uppercase">Analyzing Attempt...</span>
              </div>
           )}
 
           {attemptResult && !isProcessing && (
-            <div className="w-full p-8 rounded-[2.5rem] bg-slate-900 border border-slate-800 animate-fadeIn text-center space-y-4">
-              <div className={`text-4xl font-black ${attemptResult.score > 80 ? 'text-green-500' : 'text-amber-500'}`}>
+            <div className="w-full p-6 rounded-3xl bg-slate-900 border border-slate-800 animate-fadeIn text-center space-y-4">
+              <div className={`text-2xl font-black ${attemptResult.score > 80 ? 'text-green-400' : 'text-amber-400'}`}>
                 {attemptResult.score}%
               </div>
-              <p className="text-slate-300 italic leading-relaxed">"{attemptResult.feedback}"</p>
+              <p className="text-slate-300 italic">"{attemptResult.feedback}"</p>
               <div className="flex justify-center">
                  {attemptResult.score > 80 ? (
-                    <div className="px-6 py-2 rounded-full bg-green-500/10 text-green-500 text-[10px] font-black uppercase tracking-widest border border-green-500/20">
+                    <div className="px-4 py-2 rounded-full bg-green-500/10 text-green-500 text-xs font-bold uppercase border border-green-500/20">
                       {t('excellent')}
                     </div>
                  ) : (
                     <button 
                       onClick={startRecording}
-                      className="text-amber-500 text-[10px] font-black uppercase tracking-widest underline decoration-2 underline-offset-8"
+                      className="text-amber-500 text-xs font-bold uppercase underline decoration-2 underline-offset-4"
                     >
                       {t('tryAgain')}
                     </button>
@@ -196,38 +182,9 @@ const PronunciationWorkshop: React.FC<Props> = ({ items, lang, coach, onClose })
             </div>
           )}
 
-          <div className="w-full space-y-4">
-            <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.25em] pl-2">Coaching Details</h3>
-            
-            <div className="grid gap-3">
-              {renderTipSection(
-                lang === 'en' ? 'General Tip' : 'نصيحة عامة',
-                selectedWord.tips[lang],
-                'fa-lightbulb',
-                'bg-blue-500/10 text-blue-400'
-              )}
-              
-              {renderTipSection(
-                lang === 'en' ? 'Mouth & Lips' : 'القم والشفاه',
-                selectedWord.mouthPosition?.[lang],
-                'fa-face-grin',
-                'bg-purple-500/10 text-purple-400'
-              )}
-              
-              {renderTipSection(
-                lang === 'en' ? 'Tongue Placement' : 'وضعية اللسان',
-                selectedWord.tonguePlacement?.[lang],
-                'fa-language',
-                'bg-indigo-500/10 text-indigo-400'
-              )}
-              
-              {renderTipSection(
-                lang === 'en' ? 'Common Pitfalls' : 'أخطاء شائعة',
-                selectedWord.commonPitfalls?.[lang],
-                'fa-triangle-exclamation',
-                'bg-red-500/10 text-red-400'
-              )}
-            </div>
+          <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 w-full">
+            <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Coach's Tip</h4>
+            <p className="text-sm text-slate-400 leading-relaxed">{selectedWord.tips[lang]}</p>
           </div>
         </div>
       )}
