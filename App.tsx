@@ -10,12 +10,15 @@ import LiveMetrics from './components/LiveMetrics.tsx';
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('en');
   const [isRTL, setIsRTL] = useState(false);
-  // Default screen is 'home' now that API_KEY is handled by the environment
   const [activeScreen, setActiveScreen] = useState<'home' | 'customize' | 'practice' | 'results' | 'stats' | 'profile'>('home');
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [showPronunciationWorkshop, setShowPronunciationWorkshop] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
+  // Tutorial State
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
   // Customization State
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [topic, setTopic] = useState('');
@@ -58,6 +61,12 @@ const App: React.FC = () => {
     if (h) setHistory(JSON.parse(h));
     const p = localStorage.getItem('ve_profile');
     if (p) setProfile(JSON.parse(p));
+    
+    // Check for first-time tutorial
+    const hasSeenTutorial = localStorage.getItem('ve_seen_tutorial');
+    if (!hasSeenTutorial) {
+      setShowTutorial(true);
+    }
   }, []);
 
   // Persistent storage save
@@ -132,6 +141,18 @@ const App: React.FC = () => {
     }
   };
 
+  const finishTutorial = () => {
+    setShowTutorial(false);
+    localStorage.setItem('ve_seen_tutorial', 'true');
+  };
+
+  const tutorialSteps = [
+    { title: 'tutorialWelcome', desc: 'tutorialHome', icon: 'fa-bullseye' },
+    { title: 'customize', desc: 'tutorialCustomize', icon: 'fa-sliders' },
+    { title: 'practiceNow', desc: 'tutorialPractice', icon: 'fa-microphone' },
+    { title: 'feedbackTitle', desc: 'tutorialResults', icon: 'fa-shield-halved' }
+  ];
+
   const playTurn = (turn: RecordingTurn) => {
     if (!turn.audioUrl) return;
     if (audioRef.current) {
@@ -152,6 +173,38 @@ const App: React.FC = () => {
     <div className={`flex flex-col h-full bg-slate-950 text-slate-100 ${isRTL ? 'font-arabic' : 'font-english'}`}>
       <audio ref={audioRef} className="hidden" />
       
+      {/* Tutorial Overlay */}
+      {showTutorial && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 space-y-6 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -mr-16 -mt-16 blur-xl"></div>
+            
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-blue-600/20 flex items-center justify-center text-blue-500 text-3xl">
+                <i className={`fas ${tutorialSteps[tutorialStep].icon}`}></i>
+              </div>
+              <h3 className="text-2xl font-black">{t(tutorialSteps[tutorialStep].title as any)}</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
+                {t(tutorialSteps[tutorialStep].desc as any)}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-center">
+              {tutorialSteps.map((_, i) => (
+                <div key={i} className={`h-1 rounded-full transition-all duration-300 ${i === tutorialStep ? 'w-8 bg-blue-600' : 'w-2 bg-slate-800'}`}></div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => tutorialStep < tutorialSteps.length - 1 ? setTutorialStep(s => s + 1) : finishTutorial()}
+              className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+            >
+              {tutorialStep < tutorialSteps.length - 1 ? t('tutorialNext') : t('tutorialFinish')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="px-6 py-4 flex justify-between items-center border-b border-slate-900 bg-slate-950/50 backdrop-blur-lg sticky top-0 z-50">
         <h1 className="text-xl font-black italic tracking-tighter flex items-center gap-2">
           <span className="text-blue-500">VOCAL</span>EDGE

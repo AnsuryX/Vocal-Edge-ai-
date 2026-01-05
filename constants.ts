@@ -1,4 +1,3 @@
-
 import { Language, ScenarioType, Scenario, Persona } from './types';
 
 export const FOCUS_SKILLS = [
@@ -165,5 +164,13 @@ export const TRANSLATIONS = {
   userName: { en: 'Display Name', ar_msa: 'الاسم المعروض', ar_khaleeji: 'اسمك' },
   userBio: { en: 'Professional Bio / Role', ar_msa: 'نبذة شخصية', ar_khaleeji: 'عن نفسك' },
   userGoal: { en: 'Primary Goal', ar_msa: 'الهدف الأساسي', ar_khaleeji: 'هدفك الحين' },
-  toneVibe: { en: 'Coach Tone Vibe', ar_msa: 'نبرة المدرب المفضلة', ar_khaleeji: 'جو المدرب اللي تحبه' }
+  toneVibe: { en: 'Coach Tone Vibe', ar_msa: 'نبرة المدرب المفضلة', ar_khaleeji: 'جو المدرب اللي تحبه' },
+  // Tutorial Strings
+  tutorialWelcome: { en: 'Mission Briefing', ar_msa: 'موجز المهمة', ar_khaleeji: 'خطة التدريب' },
+  tutorialHome: { en: 'Choose your combat zone. Each scenario tests a different set of communication skills.', ar_msa: 'اختر منطقة القتال الخاصة بك. كل سيناريو يختبر مهارات مختلفة.', ar_khaleeji: 'اختر الميدان اللي تبي تجربه. كل سيناريو يختبر مهارات معينة.' },
+  tutorialCustomize: { en: 'Customize the mission. Set the topic and pick an opponent that will push your limits.', ar_msa: 'خصص المهمة. حدد الموضوع واختر خصماً سيدفعك إلى أقصى حدودك.', ar_khaleeji: 'فصل المهمة على كيفك. حدد الموضوع واختار اللي تبي تجابله.' },
+  tutorialPractice: { en: 'Speak naturally. We analyze your tone, energy, and pace in real-time.', ar_msa: 'تحدث بشكل طبيعي. نقوم بتحليل نبرة صوتك وطاقتك في الوقت الفعلي.', ar_khaleeji: 'سولف عادي. بنحلل نبرة صوتك وطاقتك وسرعتك في نفس الوقت.' },
+  tutorialResults: { en: 'Receive the unfiltered truth. Review your metrics and master the feedback.', ar_msa: 'احصل على الحقيقة غير المفلترة. راجع مقاييسك وأتقن الملاحظات.', ar_khaleeji: 'خذ الزبدة بدون مجاملات. راجع أرقامك وتعلم من الملاحظات.' },
+  tutorialNext: { en: 'Next', ar_msa: 'التالي', ar_khaleeji: 'اللي بعده' },
+  tutorialFinish: { en: 'Ready to Engage', ar_msa: 'جاهز للاشتباك', ar_khaleeji: 'جاهز للسوالف' }
 };
